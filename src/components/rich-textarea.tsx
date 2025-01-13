@@ -29,8 +29,9 @@ export function RichTextarea({
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const appendContent = useCallback((newContent: string) => {
-    onChange((prev) => prev ? prev + '\n' + newContent : newContent)
-  }, [onChange])
+    const updatedValue = value ? value + '\n' + newContent : newContent
+    onChange(updatedValue)
+  }, [onChange, value])
 
   const clearFiles = useCallback(() => {
     setFiles([])
@@ -39,7 +40,6 @@ export function RichTextarea({
     }
   }, [])
 
-  // Add a method to clear the component state
   const clearComponent = useCallback(() => {
     setFiles([])
     if (fileInputRef.current) {
@@ -47,13 +47,11 @@ export function RichTextarea({
     }
   }, [])
 
-  // Expose the clear method to parent components
   useEffect(() => {
     if (value === '') {
       clearComponent()
     }
   }, [value, clearComponent])
-
 
   const processImage = async (file: File): Promise<string> => {
     try {
@@ -288,3 +286,4 @@ export function RichTextarea({
     </div>
   )
 }
+
