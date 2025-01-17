@@ -1,37 +1,24 @@
 'use client'
 
+export const runtime = 'nodejs' // Explicitly set runtime
+
 import { useState, useEffect } from 'react'
-import { Download, Eye, RefreshCw, History, Paperclip, Send } from 'lucide-react'
+import { Download, Eye, RefreshCw, Send, Code } from 'lucide-react'
 import { AdminDetailsModal } from '@/components/admin-details-modal'
-import { FileExplorer } from '@/components/file-explorer'
+import FileExplorer from '@/components/file-explorer'
 import { CodeEditor } from '@/components/code-editor'
 import { RevisionModal } from '@/components/revision-modal'
 import { Changelog } from '@/components/changelog'
-import { FileUpload } from '@/components/file-upload'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
-import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
-import { Label } from '@/components/ui/label'
 import { RichTextarea } from '@/components/rich-textarea'
 import { PluginDetailsModal, type PluginDetails } from '@/components/plugin-details-modal'
+import { PreviewModal } from '@/components/preview-modal'
+import { createWordPressInstance, installPlugin, deleteWordPressInstance } from '@/lib/instawp'
 import mammoth from 'mammoth'
-
-const OPENAI_API_KEY = process.env.NEXT_PUBLIC_OPENAI_API_KEY
-
-interface FileStructure {
-  name: string
-  type: 'file' | 'folder'
-  content?: string
-  children?: FileStructure[]
-}
-
-interface AdminDetails {
-  url: string
-  username: string
-  password: string
-}
+import { CodeSnippetModal } from '@/components/code-snippet-modal'
+import { FileStructure } from '@/types/shared'
 
 interface ChangelogEntry {
   id: string
@@ -54,13 +41,20 @@ export default function PluginGenerator() {
   const [previewSiteId, setPreviewSiteId] = useState<string | null>(null)
   const [isCreatingPreview, setIsCreatingPreview] = useState(false)
   const [showAdminModal, setShowAdminModal] = useState(false)
-  const [adminDetails, setAdminDetails] = useState<AdminDetails | null>(null)
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
   const [revisionFiles, setRevisionFiles] = useState<File[]>([])
   const [changelog, setChangelog] = useState<ChangelogEntry[]>([])
   const [showPluginDetailsModal, setShowPluginDetailsModal] = useState(false)
   const [pluginDetails, setPluginDetails] = useState<PluginDetails | null>(null)
   const [hasFilledDetails, setHasFilledDetails] = useState(false)
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [isCodeSnippetModalOpen, setIsCodeSnippetModalOpen] = useState(false)
+  const [showRevisionModal, setShowRevisionModal] = useState(false)
+  const [isRevisionInputActive, setIsRevisionInputActive] = useState(false)
+
+  const API_URL = process.env.NEXT_PUBLIC_API_URL
+  const OPENAI_API_KEY = process.env.NEXT_PUBLIC_OPENAI_API_KEY
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -81,13 +75,7 @@ export default function PluginGenerator() {
 
   const deleteSite = async (siteId: string) => {
     try {
-      await fetch('http://localhost:4000/delete-preview-site', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ siteId }),
-      })
+      await deleteWordPressInstance(siteId)
       console.log('Preview site deleted successfully')
     } catch (error) {
       console.error('Error deleting preview site:', error)
@@ -113,7 +101,7 @@ export default function PluginGenerator() {
       const result = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_OPENAI_API_KEY}`,
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -148,8 +136,10 @@ Functionality: ${description}`
 
       if (data.choices?.[0]?.message?.content) {
         const generatedCode = data.choices[0].message.content
-          .replace(/\`\`\`php\n?/, '')
-          .replace(/\`\`\`\n?$/, '')
+          .replace(/^[\s\S]*?<\?php\s*/m, '<?php\n') // Remove everything before first <?php and ensure newline
+          .replace(/\`\`\`(?:php)?\s*/g, '') // Remove all code fence markers
+          .replace(/\n<\?php/g, '') // Remove any additional <?php tags
+          .replace(/\`\`\`[\s\S]*$/, '') // Remove trailing code fence
           .trim()
 
         setGeneratedCode(generatedCode)
@@ -250,9 +240,9 @@ Functionality: ${description}`
     setSelectedFile(`${pluginName}/${pluginName}.php`)
   }
 
-  const previewPlugin = async () => {
+  const handlePreview = async () => {
     if (!generatedCode || !pluginName) {
-      setError('Please enter a plugin name and generate code first.')
+      setError('Please generate code and enter a plugin name before previewing.')
       return
     }
 
@@ -261,55 +251,30 @@ Functionality: ${description}`
     setIsCreatingPreview(true)
 
     try {
-      const response = await fetch('http://localhost:4000/preview-plugin', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          pluginName,
-          code: generatedCode.replace(/\`\`\`php\n?|\`\`\`\n?/g, '')
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || 'Failed to create preview site')
-      }
-
-      const data = await response.json()
-      const siteData = data?.data
-
-      if (siteData?.wp_url) {
-        setPreviewSiteId(siteData.id)
-        setAdminDetails({
-          url: siteData.wp_url,
-          username: siteData.wp_username,
-          password: siteData.wp_password,
-        })
-        setShowAdminModal(true)
-
-        const loginUrl = `${siteData.wp_url}/wp-admin/?auto_login=true&s_hash=${siteData.s_hash}`
-        const previewWindow = window.open(loginUrl, '_blank')
-
-        if (previewWindow) {
-          const checkWindowClosed = setInterval(() => {
-            if (previewWindow.closed) {
-              clearInterval(checkWindowClosed)
-              deleteSite(siteData.id)
-              setPreviewSiteId(null)
-            }
-          }, 1000)
-        }
-      } else {
-        throw new Error('Invalid site data received')
-      }
+      const instance = await createWordPressInstance(pluginName)
+      await installPlugin(instance.id, generatedCode, pluginName)
+      setPreviewUrl(instance.adminUrl)
+      setPreviewSiteId(instance.id)
+      setIsPreviewModalOpen(true)
     } catch (err) {
       console.error('Error creating preview:', err)
       setError(`Error creating preview site: ${err instanceof Error ? err.message : 'Unknown error'}`)
     } finally {
       setLoading(false)
       setIsCreatingPreview(false)
+    }
+  }
+
+  const handleClosePreview = async () => {
+    setIsPreviewModalOpen(false)
+    if (previewSiteId) {
+      try {
+        await deleteWordPressInstance(previewSiteId)
+        setPreviewSiteId(null)
+        setPreviewUrl(null)
+      } catch (error) {
+        console.error('Error deleting preview site:', error)
+      }
     }
   }
 
@@ -323,19 +288,27 @@ Functionality: ${description}`
     setError(null)
 
     try {
-      const response = await fetch('http://localhost:4000/export-plugin', {
+      const response = await fetch(`${API_URL}/export-plugin`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ pluginName, code: generatedCode }),
+        body: JSON.stringify({ 
+          pluginName, 
+          code: generatedCode 
+        }),
       })
 
       if (!response.ok) {
-        throw new Error('Failed to download plugin')
+        const errorData = await response.json()
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
       }
 
       const blob = await response.blob()
+      if (blob.size === 0) {
+        throw new Error('Received empty response from server')
+      }
+
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -345,6 +318,7 @@ Functionality: ${description}`
       link.remove()
       window.URL.revokeObjectURL(url)
     } catch (err) {
+      console.error('Download error:', err)
       setError(`Error downloading plugin: ${err instanceof Error ? err.message : 'Unknown error'}`)
     } finally {
       setLoading(false)
@@ -361,10 +335,8 @@ Functionality: ${description}`
     setError(null)
 
     try {
-      // Combine all content for the revision request
       let fullRevisionRequest = revisionDescription
 
-      // Add content from any attached files
       if (revisionFiles.length > 0) {
         for (const file of revisionFiles) {
           if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
@@ -416,21 +388,24 @@ Revision request: ${fullRevisionRequest}`
         throw new Error('No response received from AI')
       }
 
-      // Split response into explanation and code
       const parts = aiResponse.split('CODE:')
       if (parts.length !== 2) {
         throw new Error('Invalid response format')
       }
 
       const explanation = parts[0].trim()
-      let newCode = parts[1].trim()
+      const newCode = parts[1]
+        .replace(/^[\s\S]*?<\?php\s*/m, '<?php\n') // First <?php tag
+        .replace(/\`\`\`(?:php)?\s*|\.\.\.\s*php\s*|\`\`\`\s*$/g, '') // Remove code fences and artifacts
+        .replace(/\n<\?php/g, '') // Remove additional <?php tags
+        .replace(/^\s*<\?php\s*/, '<?php\n') // Ensure clean <?php start
+        .replace(/\s*$/, '\n') // Ensure trailing newline
+        .trim()
 
-      // Validate that the response contains PHP code
       if (!newCode.includes('<?php')) {
         throw new Error('No valid PHP code found in response')
       }
 
-      // Add to changelog
       const newEntry: ChangelogEntry = {
         id: Date.now().toString(),
         date: new Date().toLocaleDateString(),
@@ -441,16 +416,12 @@ Revision request: ${fullRevisionRequest}`
       }
 
       setChangelog(prev => [newEntry, ...prev])
-
-      // Update the current plugin code
       setGeneratedCode(newCode)
       createFileStructure(newCode)
       
-      // Clear revision inputs and files
       setRevisionDescription('')
       setRevisionFiles([])
       
-      // Force clear the RichTextarea
       const richTextareaElement = document.querySelector('.revision-textarea') as HTMLTextAreaElement
       if (richTextareaElement) {
         richTextareaElement.value = ''
@@ -463,10 +434,19 @@ Revision request: ${fullRevisionRequest}`
     }
   }
 
+  const handleRevisionInputChange = (value: string) => {
+    setRevisionDescription(value)
+    setIsRevisionInputActive(value.length > 0 || revisionFiles.length > 0)
+  }
+
+  const handleRevisionFilesSelected = (files: File[]) => {
+    setRevisionFiles(files)
+    setIsRevisionInputActive(files.length > 0 || revisionDescription.length > 0)
+  }
+
   return (
     <div className="flex h-screen bg-white">
-      {/* Left Sidebar - File Explorer (20%) */}
-      <div className="w-1/5 border-r">
+      <div className="w-[250px] border-r">
         <div className="p-4 border-b">
           <h2 className="font-semibold mb-2">Files</h2>
           <div className="h-[calc(100vh-8rem)] overflow-auto">
@@ -479,8 +459,7 @@ Revision request: ${fullRevisionRequest}`
         </div>
       </div>
 
-      {/* Middle Section - Code Editor (40%) */}
-      <div className="w-2/5 flex flex-col border-r">
+      <div className="w-[calc(50%-125px)] flex flex-col border-r">
         <div className="border-b p-4">
           <h1 className="text-2xl font-bold mb-6">WordPress Plugin Generator</h1>
           <div className="space-y-4">
@@ -498,7 +477,7 @@ Revision request: ${fullRevisionRequest}`
                 </div>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 pr-4">
               <Button
                 onClick={generateCode}
                 disabled={loading || isCreatingPreview}
@@ -514,11 +493,12 @@ Revision request: ${fullRevisionRequest}`
                     Generating...
                   </>
                 ) : hasFilledDetails ? (
-                  'Generate Plugin'
+                  'Generate Code'
                 ) : (
                   'Start'
                 )}
               </Button>
+
               {generatedCode && (
                 <>
                   <Button
@@ -527,11 +507,19 @@ Revision request: ${fullRevisionRequest}`
                     disabled={loading || isCreatingPreview}
                   >
                     <Download className="mr-2 h-4 w-4" />
-                    Download
+                    Download plugin
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={previewPlugin}
+                    onClick={() => setIsCodeSnippetModalOpen(true)}
+                    disabled={loading}
+                  >
+                    <Code className="mr-2 h-4 w-4" />
+                    Code Snippet
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handlePreview}
                     disabled={loading || isCreatingPreview}
                   >
                     {isCreatingPreview ? (
@@ -550,56 +538,53 @@ Revision request: ${fullRevisionRequest}`
               )}
             </div>
           </div>
-        </div>
 
-        {/* Code Editor / Preview Section */}
-        <div className="flex-1 p-4">
-          <Card className="h-full">
-            <Tabs defaultValue="code" className="h-full">
-              <TabsList>
-                <TabsTrigger value="code">Code</TabsTrigger>
-                <TabsTrigger value="preview">Preview</TabsTrigger>
-              </TabsList>
-              <TabsContent value="code" className="h-[calc(100%-40px)]">
-                <CodeEditor
-                  selectedFile={selectedFile}
-                  fileStructure={fileStructure}
-                />
-              </TabsContent>
-              <TabsContent value="preview" className="h-[calc(100%-40px)]">
-                <div className="w-full h-full">
-                  {adminDetails ? (
-                    <iframe
-                      src={`${adminDetails.url}/wp-admin/?auto_login=true`}
-                      className="w-full h-full border rounded-md"
-                      title="WordPress Preview"
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center h-full text-gray-500">
-                      Generate and preview a plugin to see it here
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-            </Tabs>
-          </Card>
+          <div className="flex-1 p-4">
+            <Card className="h-full">
+              <Tabs defaultValue="code" className="h-full">
+                <TabsList>
+                  <TabsTrigger value="code">Code</TabsTrigger>
+                  <TabsTrigger value="preview">Preview</TabsTrigger>
+                </TabsList>
+                <TabsContent value="code" className="h-[calc(100%-40px)]">
+                  <CodeEditor
+                    selectedFile={selectedFile}
+                    fileStructure={fileStructure}
+                  />
+                </TabsContent>
+                <TabsContent value="preview" className="h-[calc(100%-40px)]">
+                  <div className="w-full h-full">
+                    {previewUrl ? (
+                      <iframe
+                        src={previewUrl}
+                        className="w-full h-full border rounded-md"
+                        title="WordPress Preview"
+                      />
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-gray-500">
+                        Generate and preview a plugin to see it here
+                      </div>
+                    )}
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </Card>
+          </div>
         </div>
       </div>
 
-      {/* Right Section - Revision History (40%) */}
-      <div className="w-2/5 flex flex-col">
+      <div className="w-[calc(50%-125px)] flex flex-col">
         <div className="p-4 border-b">
           <h2 className="text-xl font-semibold">Revision History</h2>
         </div>
         
-        {/* Moved revision input to top */}
         {generatedCode && (
           <div className="p-4 border-b space-y-4">
             <RichTextarea
               placeholder="Describe the changes needed..."
               value={revisionDescription}
-              onChange={setRevisionDescription}
-              onFilesSelected={setRevisionFiles}
+              onChange={(value) => handleRevisionInputChange(value)}
+              onFilesSelected={handleRevisionFilesSelected}
               className="min-h-[100px] revision-textarea"
             />
             {revisionFiles.length > 0 && (
@@ -610,8 +595,9 @@ Revision request: ${fullRevisionRequest}`
             <div className="flex justify-end">
               <Button 
                 onClick={handleRevisionSubmit}
-                disabled={!revisionDescription || loading || revisionFiles.length === 0}
-                className="bg-black text-white hover:bg-black/90"
+                variant="default"
+                className="bg-gray-800 hover:bg-gray-700 text-white"
+                disabled={!isRevisionInputActive}
               >
                 {loading ? (
                   <>
@@ -629,24 +615,16 @@ Revision request: ${fullRevisionRequest}`
           </div>
         )}
         
-        {/* Changelog entries below */}
         <div className="flex-1 overflow-auto p-4">
           <Changelog entries={changelog} />
         </div>
       </div>
 
-      {/* Modals */}
       <AdminDetailsModal
         isOpen={showAdminModal}
         onClose={() => setShowAdminModal(false)}
-        details={adminDetails}
+        details={null}
       />
-      {/* <RevisionModal
-        isOpen={showRevisionModal}
-        onClose={() => setShowRevisionModal(false)}
-        onSubmit={handleRevisionSubmit}
-        pluginName={pluginName}
-      /> */}
       <PluginDetailsModal
         isOpen={showPluginDetailsModal}
         onClose={() => setShowPluginDetailsModal(false)}
@@ -657,21 +635,35 @@ Revision request: ${fullRevisionRequest}`
           setShowPluginDetailsModal(false)
         }}
       />
+      <PreviewModal
+        isOpen={isPreviewModalOpen}
+        onClose={handleClosePreview}
+        previewUrl={previewUrl}
+      />
+      <CodeSnippetModal
+        isOpen={isCodeSnippetModalOpen}
+        onClose={() => setIsCodeSnippetModalOpen(false)}
+        code={generatedCode}
+      />
+      <RevisionModal 
+        isOpen={showRevisionModal}
+        onClose={() => setShowRevisionModal(false)}
+        onSubmit={handleRevisionSubmit}
+        pluginName={pluginName}
+      />
 
-      {/* Loading Overlay */}
       {isCreatingPreview && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="p-6 text-center">
+        <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full mx-4">
             <RefreshCw className="h-8 w-8 animate-spin text-blue-500 mx-auto mb-4" />
-            <p className="text-lg font-semibold">Creating preview site...</p>
-            <p className="text-sm text-gray-600 mt-2">
+            <p className="text-lg font-semibold text-center">Creating preview site...</p>
+            <p className="text-sm text-gray-600 mt-2 text-center">
               This may take up to a minute. Please wait.
             </p>
-          </Card>
+          </div>
         </div>
       )}
 
-      {/* Error Message */}
       {error && (
         <div className="absolute bottom-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
           {error}

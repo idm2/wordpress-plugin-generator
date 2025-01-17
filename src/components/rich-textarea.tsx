@@ -26,6 +26,7 @@ export function RichTextarea({
   const [isDragging, setIsDragging] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [processing, setProcessing] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const appendContent = useCallback((newContent: string) => {
@@ -185,6 +186,7 @@ export function RichTextarea({
   }
 
   const handleAttachClick = () => {
+    setIsFocused(true)
     fileInputRef.current?.click()
   }
 
@@ -212,7 +214,11 @@ export function RichTextarea({
       >
         <textarea
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            onChange(e.target.value)
+            setIsFocused(true)
+          }}
+          onFocus={() => setIsFocused(true)}
           onPaste={handlePaste}
           placeholder={placeholder}
           required={required}
@@ -286,4 +292,3 @@ export function RichTextarea({
     </div>
   )
 }
-

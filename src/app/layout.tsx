@@ -1,3 +1,5 @@
+export const runtime = 'nodejs' // Explicitly set runtime
+
 import '@/styles/globals.css'
 import { Inter } from 'next/font/google'
 

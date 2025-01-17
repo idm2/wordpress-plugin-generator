@@ -17,11 +17,13 @@ interface RevisionModalProps {
 export function RevisionModal({ isOpen, onClose, onSubmit, pluginName }: RevisionModalProps) {
   const [description, setDescription] = useState('')
   const [files, setFiles] = useState<File[]>([])
+  const [isFocused, setIsFocused] = useState(false)
 
   const handleSubmit = () => {
     onSubmit(description, files)
     setDescription('')
     setFiles([])
+    setIsFocused(false)
     onClose()
   }
 
@@ -36,6 +38,7 @@ export function RevisionModal({ isOpen, onClose, onSubmit, pluginName }: Revisio
             placeholder="Describe the issues or changes needed..."
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            onFocus={() => setIsFocused(true)}
             className="min-h-[100px]"
           />
           <FileUpload
@@ -54,8 +57,8 @@ export function RevisionModal({ isOpen, onClose, onSubmit, pluginName }: Revisio
               Cancel
             </Button>
             <Button 
-              onClick={handleSubmit} 
-              disabled={!description}
+              onClick={handleSubmit}
+              disabled={!isFocused && files.length === 0}
               variant="default"
             >
               Submit Revision Request

@@ -1,85 +1,63 @@
 'use client'
 
-import { FileCode, Folder, FolderOpen } from 'lucide-react'
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
+import { ChevronRight, File, Folder } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { FileStructure } from '@/types/shared'
 
 interface FileExplorerProps {
-  files: any[]
+  files: FileStructure[]
   selectedFile: string | null
   onSelectFile: (path: string) => void
 }
 
-export function FileExplorer({ files, selectedFile, onSelectFile }: FileExplorerProps) {
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
+const FileExplorer = ({ files, selectedFile, onSelectFile }: FileExplorerProps) => {
+  const renderItem = (item: FileStructure, path: string = '', level: number = 0) => {
+    const fullPath = path ? `${path}/${item.name}` : item.name
+    const isSelected = selectedFile === fullPath
 
-  const toggleFolder = (path: string) => {
-    const newExpanded = new Set(expandedFolders)
-    if (newExpanded.has(path)) {
-      newExpanded.delete(path)
-    } else {
-      newExpanded.add(path)
-    }
-    setExpandedFolders(newExpanded)
-  }
-
-  const renderFileTree = (items: any[], path = "") => {
-    return items.map((item) => {
-      const currentPath = path ? `${path}/${item.name}` : item.name
-      
-      if (item.type === "folder") {
-        const isExpanded = expandedFolders.has(currentPath)
-        return (
-          <div key={currentPath}>
-            <Button
-              variant="ghost"
-              onClick={() => toggleFolder(currentPath)}
-              className={`flex items-center gap-2 w-full px-2 py-1 text-sm hover:bg-gray-100 rounded-sm ${
-                selectedFile === currentPath ? 'bg-gray-100' : ''
-              }`}
-            >
-              {isExpanded ? (
-                <FolderOpen className="h-4 w-4 text-gray-500" />
-              ) : (
-                <Folder className="h-4 w-4 text-gray-500" />
-              )}
-              {item.name}
-            </Button>
-            {isExpanded && item.children && (
-              <div className="ml-4">
-                {renderFileTree(item.children, currentPath)}
-              </div>
-            )}
-          </div>
-        )
-      }
-
+    if (item.type === 'file') {
       return (
-        <Button
-          key={currentPath}
-          variant="ghost"
-          onClick={() => onSelectFile(currentPath)}
-          className={`flex items-center gap-2 w-full px-2 py-1 text-sm hover:bg-gray-100 rounded-sm ${
-            selectedFile === currentPath ? 'bg-gray-100' : ''
-          }`}
+        <div
+          key={fullPath}
+          className={cn(
+            'group flex items-center py-1 px-2 text-sm cursor-pointer hover:bg-accent/50 relative',
+            isSelected && 'bg-accent text-accent-foreground',
+          )}
+          style={{ paddingLeft: `${(level + 1) * 12}px` }}
+          onClick={() => onSelectFile(fullPath)}
         >
-          <FileCode className="h-4 w-4 text-gray-500" />
-          {item.name}
-        </Button>
+          <div className="absolute left-0 top-0 bottom-0 w-[1px] bg-border/50 group-hover:bg-border" />
+          <File className="h-4 w-4 mr-2 text-muted-foreground shrink-0" />
+          <span className="truncate font-mono text-xs">{item.name}</span>
+        </div>
       )
-    })
+    }
+
+    return (
+      <div key={fullPath}>
+        <div
+          className="flex items-center py-1 px-2 text-sm cursor-pointer hover:bg-accent/50 relative group"
+          style={{ paddingLeft: `${level * 12}px` }}
+        >
+          <div className="absolute left-0 top-0 bottom-0 w-[1px] bg-border/50 group-hover:bg-border" />
+          <ChevronRight className="h-4 w-4 mr-1 text-muted-foreground shrink-0" />
+          <Folder className="h-4 w-4 mr-2 text-muted-foreground shrink-0" />
+          <span className="truncate font-mono text-xs">{item.name}</span>
+        </div>
+        <div className="relative">
+          <div className="absolute left-[9px] top-0 bottom-0 w-[1px] bg-border/50" />
+          {item.children?.map((child) => renderItem(child, fullPath, level + 1))}
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div className="space-y-1">
-      {files.length > 0 ? (
-        renderFileTree(files)
-      ) : (
-        <p className="text-sm text-gray-500 p-2">
-          No files generated yet
-        </p>
-      )}
+    <div className="h-full overflow-auto bg-background border-r">
+      {files.map((item) => renderItem(item))}
     </div>
   )
 }
+
+export default FileExplorer
 
