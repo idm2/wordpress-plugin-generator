@@ -1,6 +1,5 @@
-'use client'
-
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import React from "react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 interface PreviewModalProps {
   isOpen: boolean
@@ -11,21 +10,17 @@ interface PreviewModalProps {
 export function PreviewModal({ isOpen, onClose, previewUrl }: PreviewModalProps) {
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[90vw] sm:max-h-[90vh] bg-white">
+      <DialogContent className="sm:max-w-[800px] h-[80vh]">
         <DialogHeader>
           <DialogTitle>Plugin Preview</DialogTitle>
         </DialogHeader>
-        {previewUrl ? (
-          <iframe
-            src={previewUrl}
-            className="w-full h-[80vh] border-0"
-            title="WordPress Plugin Preview"
-          />
-        ) : (
-          <div className="flex items-center justify-center h-[80vh]">
-            Loading preview...
-          </div>
-        )}
+        <div className="mt-4 h-full">
+          {previewUrl ? (
+            <iframe src={previewUrl} className="w-full h-full border-0" title="WordPress Preview" />
+          ) : (
+            <div className="flex items-center justify-center h-full text-gray-500">No preview available</div>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   )

@@ -1,24 +1,24 @@
-'use client'
+"use client"
 
-export const runtime = 'nodejs' // Explicitly set runtime
+export const runtime = "nodejs"
 
-import { useState, useEffect } from 'react'
-import { Download, Eye, RefreshCw, Send, Code } from 'lucide-react'
-import { AdminDetailsModal } from '@/components/admin-details-modal'
-import FileExplorer from '@/components/file-explorer'
-import { CodeEditor } from '@/components/code-editor'
-import { RevisionModal } from '@/components/revision-modal'
-import { Changelog } from '@/components/changelog'
-import { Button } from '@/components/ui/button'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Card } from '@/components/ui/card'
-import { RichTextarea } from '@/components/rich-textarea'
-import { PluginDetailsModal, type PluginDetails } from '@/components/plugin-details-modal'
-import { PreviewModal } from '@/components/preview-modal'
-import { createWordPressInstance, installPlugin, deleteWordPressInstance } from '@/lib/instawp'
-import mammoth from 'mammoth'
-import { CodeSnippetModal } from '@/components/code-snippet-modal'
-import { FileStructure } from '@/types/shared'
+import { useState, useEffect } from "react"
+import { Download, Eye, RefreshCw, Send, Code } from "lucide-react"
+import { AdminDetailsModal } from "@/components/admin-details-modal"
+import FileExplorer from "@/components/file-explorer"
+import { CodeEditor } from "@/components/code-editor"
+import { RevisionModal } from "@/components/revision-modal"
+import { Changelog } from "@/components/changelog"
+import { Button } from "@/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Card } from "@/components/ui/card"
+import { RichTextarea } from "@/components/rich-textarea"
+import { PluginDetailsModal, type PluginDetails } from "@/components/plugin-details-modal"
+import { PreviewModal } from "@/components/preview-modal"
+import { createWordPressInstance, installPlugin, deleteWordPressInstance } from "@/lib/instawp"
+import mammoth from "mammoth"
+import { CodeSnippetModal } from "@/components/code-snippet-modal"
+import type { FileStructure } from "@/types/shared"
 
 interface ChangelogEntry {
   id: string
@@ -32,10 +32,10 @@ interface ChangelogEntry {
 export default function PluginGenerator() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [description, setDescription] = useState('')
-  const [revisionDescription, setRevisionDescription] = useState('')
-  const [generatedCode, setGeneratedCode] = useState('')
-  const [pluginName, setPluginName] = useState('my-plugin')
+  const [description, setDescription] = useState("")
+  const [revisionDescription, setRevisionDescription] = useState("")
+  const [generatedCode, setGeneratedCode] = useState("")
+  const [pluginName, setPluginName] = useState("my-plugin")
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [fileStructure, setFileStructure] = useState<FileStructure[]>([])
   const [previewSiteId, setPreviewSiteId] = useState<string | null>(null)
@@ -63,10 +63,10 @@ export default function PluginGenerator() {
       }
     }
 
-    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener("beforeunload", handleBeforeUnload)
 
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener("beforeunload", handleBeforeUnload)
       if (previewSiteId) {
         deleteSite(previewSiteId)
       }
@@ -76,15 +76,15 @@ export default function PluginGenerator() {
   const deleteSite = async (siteId: string) => {
     try {
       await deleteWordPressInstance(siteId)
-      console.log('Preview site deleted successfully')
+      console.log("Preview site deleted successfully")
     } catch (error) {
-      console.error('Error deleting preview site:', error)
+      console.error("Error deleting preview site:", error)
     }
   }
 
   const generateCode = async () => {
     if (!description && attachedFiles.length === 0) {
-      setError('Please enter a description or attach files.')
+      setError("Please enter a description or attach files.")
       return
     }
 
@@ -95,24 +95,39 @@ export default function PluginGenerator() {
 
     setLoading(true)
     setError(null)
-    setGeneratedCode('')
 
     try {
-      const result = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
+      let fullRequest = description
+
+      if (attachedFiles.length > 0) {
+        for (const file of attachedFiles) {
+          if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+            const arrayBuffer = await file.arrayBuffer()
+            const result = await mammoth.extractRawText({ arrayBuffer })
+            fullRequest += "\n" + result.value
+          } else if (file.type === "text/plain") {
+            const text = await file.text()
+            fullRequest += "\n" + text
+          }
+        }
+      }
+
+      const result = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
         headers: {
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: 'gpt-3.5-turbo',
+          model: "gpt-3.5-turbo",
           messages: [
             {
-              role: 'system',
-              content: 'You are an expert WordPress plugin developer. Generate only the raw PHP code for a WordPress plugin. Do not include markdown formatting, code fences, or comments. The code should start with <?php and be production-ready, following WordPress coding standards.'
+              role: "system",
+              content:
+                "You are an expert WordPress plugin developer. Generate only the raw PHP code for a WordPress plugin. Do not include markdown formatting, code fences, or comments. The code should start with <?php and be production-ready, following WordPress coding standards.",
             },
-            { 
-              role: 'user', 
+            {
+              role: "user",
               content: `Generate a WordPress plugin with the following details:
 Name: ${pluginDetails.name}
 Plugin URI: ${pluginDetails.uri}
@@ -120,36 +135,35 @@ Description: ${pluginDetails.description}
 Version: ${pluginDetails.version}
 Author: ${pluginDetails.author}
 
-Functionality: ${description}`
-            }
+Functionality: ${fullRequest}`,
+            },
           ],
           max_tokens: 2000,
-          temperature: 0.7
+          temperature: 0.7,
         }),
       })
 
       if (!result.ok) {
-        throw new Error('Failed to generate code')
+        throw new Error("Failed to generate code")
       }
 
       const data = await result.json()
 
       if (data.choices?.[0]?.message?.content) {
         const generatedCode = data.choices[0].message.content
-          .replace(/^[\s\S]*?<\?php\s*/m, '<?php\n') // Remove everything before first <?php and ensure newline
-          .replace(/\`\`\`(?:php)?\s*/g, '') // Remove all code fence markers
-          .replace(/\n<\?php/g, '') // Remove any additional <?php tags
-          .replace(/\`\`\`[\s\S]*$/, '') // Remove trailing code fence
+          .replace(/^[\s\S]*?<\?php\s*/m, "<?php\n")
+          .replace(/```(?:php)?\s*|\s*```$/g, "")
+          .replace(/\n<\?php/g, "")
           .trim()
 
         setGeneratedCode(generatedCode)
         createFileStructure(generatedCode)
       } else {
-        setError('Failed to generate code.')
+        setError("Failed to generate code.")
       }
     } catch (err) {
-      console.error('Error generating code:', err)
-      setError(`Error generating code: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      console.error("Error generating code:", err)
+      setError(`Error generating code: ${err instanceof Error ? err.message : "Unknown error"}`)
     } finally {
       setLoading(false)
     }
@@ -165,75 +179,67 @@ Functionality: ${description}`
             name: "admin",
             type: "folder",
             children: [
-              { 
-                name: "css", 
-                type: "folder", 
-                children: [
-                  { name: "admin.css", type: "file", content: "/* Admin styles */" }
-                ]
+              {
+                name: "css",
+                type: "folder",
+                children: [{ name: "admin.css", type: "file", content: "/* Admin styles */" }],
               },
-              { 
-                name: "js", 
-                type: "folder", 
-                children: [
-                  { name: "admin.js", type: "file", content: "// Admin JavaScript" }
-                ]
+              {
+                name: "js",
+                type: "folder",
+                children: [{ name: "admin.js", type: "file", content: "// Admin JavaScript" }],
               },
-              { 
-                name: "class-admin.php", 
-                type: "file", 
-                content: "<?php\n// Admin functionality" 
-              }
-            ]
+              {
+                name: "class-admin.php",
+                type: "file",
+                content: "<?php\n// Admin functionality",
+              },
+            ],
           },
           {
             name: "includes",
             type: "folder",
             children: [
-              { 
-                name: "class-loader.php", 
-                type: "file", 
-                content: "<?php\n// Plugin loader" 
+              {
+                name: "class-loader.php",
+                type: "file",
+                content: "<?php\n// Plugin loader",
               },
-              { 
-                name: "class-i18n.php", 
-                type: "file", 
-                content: "<?php\n// Internationalization" 
-              }
-            ]
+              {
+                name: "class-i18n.php",
+                type: "file",
+                content: "<?php\n// Internationalization",
+              },
+            ],
           },
           {
             name: "public",
             type: "folder",
             children: [
-              { 
-                name: "css", 
-                type: "folder", 
-                children: [
-                  { name: "public.css", type: "file", content: "/* Public styles */" }
-                ]
+              {
+                name: "css",
+                type: "folder",
+                children: [{ name: "public.css", type: "file", content: "/* Public styles */" }],
               },
-              { 
-                name: "js", 
-                type: "folder", 
-                children: [
-                  { name: "public.js", type: "file", content: "// Public JavaScript" }
-                ]
+              {
+                name: "js",
+                type: "folder",
+                children: [{ name: "public.js", type: "file", content: "// Public JavaScript" }],
               },
-              { 
-                name: "class-public.php", 
-                type: "file", 
-                content: "<?php\n// Public functionality" 
-              }
-            ]
+              {
+                name: "class-public.php",
+                type: "file",
+                content: "<?php\n// Public functionality",
+              },
+            ],
           },
-          { 
-            name: `${pluginName}.php`, 
-            type: "file", 
-            content: code 
-          }
-        ]
-      }
+          {
+            name: `${pluginName}.php`,
+            type: "file",
+            content: code,
+          },
+        ],
+      },
     ]
 
     setFileStructure(structure)
@@ -242,7 +248,7 @@ Functionality: ${description}`
 
   const handlePreview = async () => {
     if (!generatedCode || !pluginName) {
-      setError('Please generate code and enter a plugin name before previewing.')
+      setError("Please generate code and enter a plugin name before previewing.")
       return
     }
 
@@ -257,8 +263,8 @@ Functionality: ${description}`
       setPreviewSiteId(instance.id)
       setIsPreviewModalOpen(true)
     } catch (err) {
-      console.error('Error creating preview:', err)
-      setError(`Error creating preview site: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      console.error("Error creating preview:", err)
+      setError(`Error creating preview site: ${err instanceof Error ? err.message : "Unknown error"}`)
     } finally {
       setLoading(false)
       setIsCreatingPreview(false)
@@ -273,14 +279,14 @@ Functionality: ${description}`
         setPreviewSiteId(null)
         setPreviewUrl(null)
       } catch (error) {
-        console.error('Error deleting preview site:', error)
+        console.error("Error deleting preview site:", error)
       }
     }
   }
 
   const downloadPlugin = async () => {
     if (!generatedCode || !pluginName) {
-      setError('Please generate code and enter a plugin name before downloading.')
+      setError("Please generate code and enter a plugin name before downloading.")
       return
     }
 
@@ -289,13 +295,13 @@ Functionality: ${description}`
 
     try {
       const response = await fetch(`${API_URL}/export-plugin`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify({ 
-          pluginName, 
-          code: generatedCode 
+        body: JSON.stringify({
+          pluginName,
+          code: generatedCode,
         }),
       })
 
@@ -306,11 +312,11 @@ Functionality: ${description}`
 
       const blob = await response.blob()
       if (blob.size === 0) {
-        throw new Error('Received empty response from server')
+        throw new Error("Received empty response from server")
       }
 
       const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
+      const link = document.createElement("a")
       link.href = url
       link.download = `${pluginName}.zip`
       document.body.appendChild(link)
@@ -318,8 +324,8 @@ Functionality: ${description}`
       link.remove()
       window.URL.revokeObjectURL(url)
     } catch (err) {
-      console.error('Download error:', err)
-      setError(`Error downloading plugin: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      console.error("Download error:", err)
+      setError(`Error downloading plugin: ${err instanceof Error ? err.message : "Unknown error"}`)
     } finally {
       setLoading(false)
     }
@@ -327,7 +333,7 @@ Functionality: ${description}`
 
   const handleRevisionSubmit = async () => {
     if (!revisionDescription && revisionFiles.length === 0) {
-      setError('Please enter a revision description or attach files.')
+      setError("Please enter a revision description or attach files.")
       return
     }
 
@@ -339,96 +345,100 @@ Functionality: ${description}`
 
       if (revisionFiles.length > 0) {
         for (const file of revisionFiles) {
-          if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+          if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
             const arrayBuffer = await file.arrayBuffer()
             const result = await mammoth.extractRawText({ arrayBuffer })
-            fullRevisionRequest += '\n' + result.value
-          } else if (file.type === 'text/plain') {
+            fullRevisionRequest += "\n" + result.value
+          } else if (file.type === "text/plain") {
             const text = await file.text()
-            fullRevisionRequest += '\n' + text
+            fullRevisionRequest += "\n" + text
           }
         }
       }
 
-      const result = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
+      const result = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
         headers: {
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: 'gpt-3.5-turbo',
+          model: "gpt-3.5-turbo",
           messages: [
             {
-              role: 'system',
-              content: 'You are a WordPress plugin developer. You will be given the current plugin code and a revision request. Your task is to modify the plugin code according to the request. First provide a brief explanation of the changes, then after a line containing only "CODE:", provide the complete updated plugin code starting with <?php. The code must be valid PHP and include all necessary WordPress plugin header comments.'
+              role: "system",
+              content:
+                'You are a WordPress plugin developer. You will be given the current plugin code and a revision request. Your task is to modify the plugin code according to the request. First provide a brief explanation of the changes, then after a line containing only "CODE:", provide the complete updated plugin code starting with <?php. The code must be valid PHP and include all necessary WordPress plugin header comments.',
             },
-            { 
-              role: 'user', 
+            {
+              role: "user",
               content: `Current plugin code:
 
 ${generatedCode}
 
-Revision request: ${fullRevisionRequest}` 
-            }
+Revision request: ${fullRevisionRequest}`,
+            },
           ],
           max_tokens: 2000,
-          temperature: 0.7
+          temperature: 0.7,
         }),
       })
 
       if (!result.ok) {
-        throw new Error('Failed to generate AI response')
+        throw new Error("Failed to generate AI response")
       }
 
       const data = await result.json()
       const aiResponse = data.choices?.[0]?.message?.content
 
       if (!aiResponse) {
-        throw new Error('No response received from AI')
+        throw new Error("No response received from AI")
       }
 
-      const parts = aiResponse.split('CODE:')
+      const parts = aiResponse.split("CODE:")
       if (parts.length !== 2) {
-        throw new Error('Invalid response format')
+        throw new Error("Invalid response format")
       }
 
       const explanation = parts[0].trim()
-      const newCode = parts[1]
-        .replace(/^[\s\S]*?<\?php\s*/m, '<?php\n') // First <?php tag
-        .replace(/\`\`\`(?:php)?\s*|\.\.\.\s*php\s*|\`\`\`\s*$/g, '') // Remove code fences and artifacts
-        .replace(/\n<\?php/g, '') // Remove additional <?php tags
-        .replace(/^\s*<\?php\s*/, '<?php\n') // Ensure clean <?php start
-        .replace(/\s*$/, '\n') // Ensure trailing newline
+      let newCode = parts[1]
+        .trim()
+        .replace(/```(?:php)?\s*|\s*```$/g, "")
+        .replace(/^[\s\S]*?(<\?php)/m, "$1")
+        .replace(/\n<\?php/g, "")
         .trim()
 
-      if (!newCode.includes('<?php')) {
-        throw new Error('No valid PHP code found in response')
+      if (!newCode.startsWith("<?php")) {
+        newCode = "<?php\n" + newCode
       }
 
+      // Update the code state first
+      setGeneratedCode(newCode)
+
+      // Force recreate the file structure with the new code
+      createFileStructure(newCode)
+
+      // Add to changelog
       const newEntry: ChangelogEntry = {
         id: Date.now().toString(),
         date: new Date().toLocaleDateString(),
         description: fullRevisionRequest,
-        files: revisionFiles.map(f => f.name),
+        files: revisionFiles.map((f) => f.name),
         aiResponse: explanation,
-        codeChanges: newCode
+        codeChanges: newCode,
       }
+      setChangelog((prev) => [newEntry, ...prev])
 
-      setChangelog(prev => [newEntry, ...prev])
-      setGeneratedCode(newCode)
-      createFileStructure(newCode)
-      
-      setRevisionDescription('')
+      // Reset form
+      setRevisionDescription("")
       setRevisionFiles([])
-      
-      const richTextareaElement = document.querySelector('.revision-textarea') as HTMLTextAreaElement
+      const richTextareaElement = document.querySelector(".revision-textarea") as HTMLTextAreaElement
       if (richTextareaElement) {
-        richTextareaElement.value = ''
+        richTextareaElement.value = ""
       }
     } catch (err) {
-      console.error('Error submitting revision:', err)
-      setError(`Error submitting revision: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      console.error("Error submitting revision:", err)
+      setError(`Error submitting revision: ${err instanceof Error ? err.message : "Unknown error"}`)
     } finally {
       setLoading(false)
     }
@@ -444,17 +454,37 @@ Revision request: ${fullRevisionRequest}`
     setIsRevisionInputActive(files.length > 0 || revisionDescription.length > 0)
   }
 
+  const updateFileStructure = (
+    structure: FileStructure[],
+    path: string | null,
+    newContent: string,
+  ): FileStructure[] => {
+    if (!path) return structure
+
+    const parts = path.split("/")
+    const updateRecursive = (items: FileStructure[]): FileStructure[] => {
+      return items.map((item) => {
+        if (item.name === parts[0]) {
+          if (parts.length === 1 && item.type === "file") {
+            return { ...item, content: newContent }
+          } else if (item.type === "folder" && item.children) {
+            return { ...item, children: updateRecursive(item.children) }
+          }
+        }
+        return item
+      })
+    }
+
+    return updateRecursive(structure)
+  }
+
   return (
     <div className="flex h-screen bg-white">
       <div className="w-[250px] border-r">
         <div className="p-4 border-b">
           <h2 className="font-semibold mb-2">Files</h2>
           <div className="h-[calc(100vh-8rem)] overflow-auto">
-            <FileExplorer
-              files={fileStructure}
-              selectedFile={selectedFile}
-              onSelectFile={setSelectedFile}
-            />
+            <FileExplorer files={fileStructure} selectedFile={selectedFile} onSelectFile={setSelectedFile} />
           </div>
         </div>
       </div>
@@ -473,7 +503,7 @@ Revision request: ${fullRevisionRequest}`
               />
               {attachedFiles.length > 0 && (
                 <div className="text-sm text-gray-500">
-                  Attached files: {attachedFiles.map(f => f.name).join(', ')}
+                  Attached files: {attachedFiles.map((f) => f.name).join(", ")}
                 </div>
               )}
             </div>
@@ -482,9 +512,7 @@ Revision request: ${fullRevisionRequest}`
                 onClick={generateCode}
                 disabled={loading || isCreatingPreview}
                 className={`${
-                  hasFilledDetails 
-                    ? 'bg-emerald-600 hover:bg-emerald-700' 
-                    : 'bg-black hover:bg-black/90'
+                  hasFilledDetails ? "bg-emerald-600 hover:bg-emerald-700" : "bg-black hover:bg-black/90"
                 } text-white`}
               >
                 {loading ? (
@@ -493,35 +521,23 @@ Revision request: ${fullRevisionRequest}`
                     Generating...
                   </>
                 ) : hasFilledDetails ? (
-                  'Generate Code'
+                  "Generate Code"
                 ) : (
-                  'Start'
+                  "Start"
                 )}
               </Button>
 
               {generatedCode && (
                 <>
-                  <Button
-                    variant="outline"
-                    onClick={downloadPlugin}
-                    disabled={loading || isCreatingPreview}
-                  >
+                  <Button variant="outline" onClick={downloadPlugin} disabled={loading || isCreatingPreview}>
                     <Download className="mr-2 h-4 w-4" />
                     Download plugin
                   </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setIsCodeSnippetModalOpen(true)}
-                    disabled={loading}
-                  >
+                  <Button variant="outline" onClick={() => setIsCodeSnippetModalOpen(true)} disabled={loading}>
                     <Code className="mr-2 h-4 w-4" />
                     Code Snippet
                   </Button>
-                  <Button
-                    variant="outline"
-                    onClick={handlePreview}
-                    disabled={loading || isCreatingPreview}
-                  >
+                  <Button variant="outline" onClick={handlePreview} disabled={loading || isCreatingPreview}>
                     {isCreatingPreview ? (
                       <>
                         <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
@@ -538,38 +554,42 @@ Revision request: ${fullRevisionRequest}`
               )}
             </div>
           </div>
+        </div>
 
-          <div className="flex-1 p-4">
-            <Card className="h-full">
-              <Tabs defaultValue="code" className="h-full">
-                <TabsList>
-                  <TabsTrigger value="code">Code</TabsTrigger>
-                  <TabsTrigger value="preview">Preview</TabsTrigger>
-                </TabsList>
-                <TabsContent value="code" className="h-[calc(100%-40px)]">
-                  <CodeEditor
-                    selectedFile={selectedFile}
-                    fileStructure={fileStructure}
-                  />
-                </TabsContent>
-                <TabsContent value="preview" className="h-[calc(100%-40px)]">
-                  <div className="w-full h-full">
-                    {previewUrl ? (
-                      <iframe
-                        src={previewUrl}
-                        className="w-full h-full border rounded-md"
-                        title="WordPress Preview"
-                      />
-                    ) : (
-                      <div className="flex items-center justify-center h-full text-gray-500">
-                        Generate and preview a plugin to see it here
-                      </div>
-                    )}
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </Card>
-          </div>
+        <div className="flex-1 p-4">
+          <Card className="h-full">
+            <Tabs defaultValue="code" className="h-full">
+              <TabsList>
+                <TabsTrigger value="code">Code</TabsTrigger>
+                <TabsTrigger value="preview">Preview</TabsTrigger>
+              </TabsList>
+              <TabsContent value="code" className="h-[calc(100%-40px)]">
+                <CodeEditor
+                  selectedFile={selectedFile}
+                  fileStructure={fileStructure}
+                  onCodeChange={(newCode) => {
+                    if (selectedFile === `${pluginName}/${pluginName}.php`) {
+                      setGeneratedCode(newCode)
+                    }
+                    // Update the file structure with the new code
+                    const updatedStructure = updateFileStructure(fileStructure, selectedFile, newCode)
+                    setFileStructure(updatedStructure)
+                  }}
+                />
+              </TabsContent>
+              <TabsContent value="preview" className="h-[calc(100%-40px)]">
+                <div className="w-full h-full">
+                  {previewUrl ? (
+                    <iframe src={previewUrl} className="w-full h-full border rounded-md" title="WordPress Preview" />
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-gray-500">
+                      Generate and preview a plugin to see it here
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
+            </Tabs>
+          </Card>
         </div>
       </div>
 
@@ -577,7 +597,7 @@ Revision request: ${fullRevisionRequest}`
         <div className="p-4 border-b">
           <h2 className="text-xl font-semibold">Revision History</h2>
         </div>
-        
+
         {generatedCode && (
           <div className="p-4 border-b space-y-4">
             <RichTextarea
@@ -588,12 +608,10 @@ Revision request: ${fullRevisionRequest}`
               className="min-h-[100px] revision-textarea"
             />
             {revisionFiles.length > 0 && (
-              <div className="text-sm text-gray-500">
-                Attached files: {revisionFiles.map(f => f.name).join(', ')}
-              </div>
+              <div className="text-sm text-gray-500">Attached files: {revisionFiles.map((f) => f.name).join(", ")}</div>
             )}
             <div className="flex justify-end">
-              <Button 
+              <Button
                 onClick={handleRevisionSubmit}
                 variant="default"
                 className="bg-gray-800 hover:bg-gray-700 text-white"
@@ -614,17 +632,13 @@ Revision request: ${fullRevisionRequest}`
             </div>
           </div>
         )}
-        
+
         <div className="flex-1 overflow-auto p-4">
           <Changelog entries={changelog} />
         </div>
       </div>
 
-      <AdminDetailsModal
-        isOpen={showAdminModal}
-        onClose={() => setShowAdminModal(false)}
-        details={null}
-      />
+      <AdminDetailsModal isOpen={showAdminModal} onClose={() => setShowAdminModal(false)} details={null} />
       <PluginDetailsModal
         isOpen={showPluginDetailsModal}
         onClose={() => setShowPluginDetailsModal(false)}
@@ -635,17 +649,13 @@ Revision request: ${fullRevisionRequest}`
           setShowPluginDetailsModal(false)
         }}
       />
-      <PreviewModal
-        isOpen={isPreviewModalOpen}
-        onClose={handleClosePreview}
-        previewUrl={previewUrl}
-      />
+      <PreviewModal isOpen={isPreviewModalOpen} onClose={handleClosePreview} previewUrl={previewUrl} />
       <CodeSnippetModal
         isOpen={isCodeSnippetModalOpen}
         onClose={() => setIsCodeSnippetModalOpen(false)}
         code={generatedCode}
       />
-      <RevisionModal 
+      <RevisionModal
         isOpen={showRevisionModal}
         onClose={() => setShowRevisionModal(false)}
         onSubmit={handleRevisionSubmit}
@@ -657,9 +667,7 @@ Revision request: ${fullRevisionRequest}`
           <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full mx-4">
             <RefreshCw className="h-8 w-8 animate-spin text-blue-500 mx-auto mb-4" />
             <p className="text-lg font-semibold text-center">Creating preview site...</p>
-            <p className="text-sm text-gray-600 mt-2 text-center">
-              This may take up to a minute. Please wait.
-            </p>
+            <p className="text-sm text-gray-600 mt-2 text-center">This may take up to a minute. Please wait.</p>
           </div>
         </div>
       )}
