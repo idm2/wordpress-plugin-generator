@@ -15,3 +15,6 @@
 [2025-01-21T23:52:57.967Z] > Working directory: C:\dev\wordpress-plugin-generator
 [2025-01-21T23:52:59.225Z] Shutting down server...
 [2025-01-21T23:55:31.127Z] Shutting down server...
+[2025-01-21T23:55:35.762Z] > Server ready on http://localhost:3000
+[2025-01-21T23:55:35.763Z] > Environment: development
+[2025-01-21T23:55:35.765Z] > Working directory: C:\dev\wordpress-plugin-generator
