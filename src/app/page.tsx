@@ -3,7 +3,7 @@
 export const runtime = "nodejs"
 
 import { useState, useEffect } from "react"
-import { Download, Eye, RefreshCw, Send, Code } from "lucide-react"
+import { Download, Eye, RefreshCw, Send, Code, Save, FolderOpen } from "lucide-react"
 import { AdminDetailsModal } from "@/components/admin-details-modal"
 import FileExplorer from "@/components/file-explorer"
 import { CodeEditor } from "@/components/code-editor"
@@ -18,6 +18,7 @@ import { PreviewModal } from "@/components/preview-modal"
 import { createWordPressInstance, installPlugin, deleteWordPressInstance } from "@/lib/instawp"
 import mammoth from "mammoth"
 import { CodeSnippetModal } from "@/components/code-snippet-modal"
+import { SavedPluginsModal } from "@/components/saved-plugins-modal"
 import type { FileStructure } from "@/types/shared"
 
 interface ChangelogEntry {
@@ -27,6 +28,14 @@ interface ChangelogEntry {
   files?: string[]
   aiResponse?: string
   codeChanges?: string
+}
+
+interface SavedPlugin {
+  id: string
+  name: string
+  code: string
+  description: string
+  date: string
 }
 
 export default function PluginGenerator() {
@@ -52,6 +61,7 @@ export default function PluginGenerator() {
   const [isCodeSnippetModalOpen, setIsCodeSnippetModalOpen] = useState(false)
   const [showRevisionModal, setShowRevisionModal] = useState(false)
   const [isRevisionInputActive, setIsRevisionInputActive] = useState(false)
+  const [isSavedPluginsModalOpen, setIsSavedPluginsModalOpen] = useState(false)
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL
   const OPENAI_API_KEY = process.env.NEXT_PUBLIC_OPENAI_API_KEY
@@ -83,20 +93,22 @@ export default function PluginGenerator() {
   }
 
   const generateCode = async () => {
-    if (!description && attachedFiles.length === 0) {
-      setError("Please enter a description or attach files.")
-      return
-    }
-
-    if (!pluginDetails) {
-      setShowPluginDetailsModal(true)
-      return
-    }
-
-    setLoading(true)
-    setError(null)
-
     try {
+      // First check if we have plugin details
+      if (!pluginDetails) {
+        setShowPluginDetailsModal(true)
+        return
+      }
+
+      // Then check for description or files
+      if (!description && attachedFiles.length === 0) {
+        setError("Please enter a description or attach files.")
+        return
+      }
+
+      setLoading(true)
+      setError(null)
+
       let fullRequest = description
 
       if (attachedFiles.length > 0) {
@@ -112,6 +124,7 @@ export default function PluginGenerator() {
         }
       }
 
+      console.log("Sending request to OpenAI API...")
       const result = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -148,6 +161,7 @@ Functionality: ${fullRequest}`,
       }
 
       const data = await result.json()
+      console.log("Received response from OpenAI API")
 
       if (data.choices?.[0]?.message?.content) {
         const generatedCode = data.choices[0].message.content
@@ -156,10 +170,11 @@ Functionality: ${fullRequest}`,
           .replace(/\n<\?php/g, "")
           .trim()
 
+        console.log("Setting generated code and creating file structure...")
         setGeneratedCode(generatedCode)
         createFileStructure(generatedCode)
       } else {
-        setError("Failed to generate code.")
+        throw new Error("No code generated in the response")
       }
     } catch (err) {
       console.error("Error generating code:", err)
@@ -478,6 +493,36 @@ Revision request: ${fullRevisionRequest}`,
     return updateRecursive(structure)
   }
 
+  const handleSavePlugin = () => {
+    if (!generatedCode || !pluginName) {
+      setError("Please generate code and enter a plugin name before saving.")
+      return
+    }
+
+    const newPlugin: SavedPlugin = {
+      id: Date.now().toString(),
+      name: pluginName,
+      code: generatedCode,
+      description: description,
+      date: new Date().toISOString(),
+    }
+
+    const savedPlugins = JSON.parse(localStorage.getItem("savedPlugins") || "[]")
+    savedPlugins.push(newPlugin)
+    localStorage.setItem("savedPlugins", JSON.stringify(savedPlugins))
+
+    setError(null)
+    alert("Plugin saved successfully!")
+  }
+
+  const handleLoadPlugin = (plugin: SavedPlugin) => {
+    setPluginName(plugin.name)
+    setGeneratedCode(plugin.code)
+    setDescription(plugin.description)
+    createFileStructure(plugin.code)
+    setError(null)
+  }
+
   return (
     <div className="flex h-screen bg-white">
       <div className="w-[250px] border-r">
@@ -507,7 +552,7 @@ Revision request: ${fullRevisionRequest}`,
                 </div>
               )}
             </div>
-            <div className="flex items-center gap-2 pr-4">
+            <div className="flex items-center flex-wrap gap-2">
               <Button
                 onClick={generateCode}
                 disabled={loading || isCreatingPreview}
@@ -521,13 +566,18 @@ Revision request: ${fullRevisionRequest}`,
                     Generating...
                   </>
                 ) : hasFilledDetails ? (
-                  "Generate Code"
+                  "Generate Plugin"
                 ) : (
                   "Start"
                 )}
               </Button>
 
-              {generatedCode && (
+              <Button variant="outline" onClick={() => setIsSavedPluginsModalOpen(true)} disabled={loading}>
+                <FolderOpen className="mr-2 h-4 w-4" />
+                Load
+              </Button>
+
+              {(hasFilledDetails || generatedCode) && (
                 <>
                   <Button variant="outline" onClick={downloadPlugin} disabled={loading || isCreatingPreview}>
                     <Download className="mr-2 h-4 w-4" />
@@ -549,6 +599,10 @@ Revision request: ${fullRevisionRequest}`,
                         Preview
                       </>
                     )}
+                  </Button>
+                  <Button variant="outline" onClick={handleSavePlugin} disabled={loading}>
+                    <Save className="mr-2 h-4 w-4" />
+                    Save
                   </Button>
                 </>
               )}
@@ -647,6 +701,7 @@ Revision request: ${fullRevisionRequest}`,
           setPluginName(details.name)
           setHasFilledDetails(true)
           setShowPluginDetailsModal(false)
+          generateCode()
         }}
       />
       <PreviewModal isOpen={isPreviewModalOpen} onClose={handleClosePreview} previewUrl={previewUrl} />
@@ -660,6 +715,12 @@ Revision request: ${fullRevisionRequest}`,
         onClose={() => setShowRevisionModal(false)}
         onSubmit={handleRevisionSubmit}
         pluginName={pluginName}
+      />
+
+      <SavedPluginsModal
+        isOpen={isSavedPluginsModalOpen}
+        onClose={() => setIsSavedPluginsModalOpen(false)}
+        onLoad={handleLoadPlugin}
       />
 
       {isCreatingPreview && (
