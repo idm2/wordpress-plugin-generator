@@ -2,11 +2,11 @@
   "name": "wordpress-plugin-generator",
   "version": "0.1.0",
   "private": true,
-  "scripts": {
-    "dev": "node server.js",
-    "build": "next build",
-    "start": "node server.js",
-    "lint": "next lint"
+"scripts": {
+  "dev": "node server.js",
+  "build": "next build",
+  "start": "node server.js",
+  "lint": "next lint"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.4",

@@ -2,3 +2,16 @@
 2025-01-15T08:49:37.869Z - > Environment: production
 2025-01-15T08:49:37.871Z - > Node.js version: v22.13.0
 2025-01-15T08:49:37.873Z - > InstaWP API Key available: true
+[2025-01-21T23:47:52.214Z] > Server ready on http://localhost:3000
+[2025-01-21T23:47:52.223Z] > Environment: development
+[2025-01-21T23:47:52.223Z] > Working directory: C:\dev\wordpress-plugin-generator
+[2025-01-21T23:50:08.797Z] Shutting down server...
+[2025-01-21T23:50:12.590Z] > Server ready on http://localhost:3000
+[2025-01-21T23:50:12.593Z] > Environment: development
+[2025-01-21T23:50:12.593Z] > Working directory: C:\dev\wordpress-plugin-generator
+[2025-01-21T23:52:53.764Z] Shutting down server...
+[2025-01-21T23:52:57.966Z] > Server ready on http://localhost:3000
+[2025-01-21T23:52:57.967Z] > Environment: development
+[2025-01-21T23:52:57.967Z] > Working directory: C:\dev\wordpress-plugin-generator
+[2025-01-21T23:52:59.225Z] Shutting down server...
+[2025-01-21T23:55:31.127Z] Shutting down server...
