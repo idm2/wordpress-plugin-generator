@@ -1,4 +1,4 @@
-require("dotenv").config()
+require("dotenv").config({ path: process.env.NODE_ENV !== "production" ? ".env.local" : "" })
 const next = require("next")
 const express = require("express")
 const cors = require("cors")
@@ -11,7 +11,7 @@ const FormData = require("form-data")
 
 const dev = process.env.NODE_ENV !== "production"
 const hostname = "localhost"
-const port = process.env.PORT || 3001
+const port = parseInt(process.env.PORT, 10) || 3001
 const app = next({ dev, hostname, port })
 const handle = app.getRequestHandler()
 
@@ -115,6 +115,19 @@ app.prepare().then(() => {
     res.setHeader("X-XSS-Protection", "1; mode=block")
     next()
   })
+
+  // Check if required API keys are set
+  const requiredEnvVars = ['INSTA_WP_API_KEY', 'ANTHROPIC_API_KEY']
+  const missingEnvVars = requiredEnvVars.filter(key => !process.env[key])
+  
+  if (missingEnvVars.length > 0) {
+    console.warn(`Warning: Missing environment variables: ${missingEnvVars.join(', ')}`)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Make sure these are set in your .env.local file')
+    } else {
+      console.log('Make sure these are set in your Vercel environment variables')
+    }
+  }
 
   // Basic health check endpoint
   server.get("/health", (req, res) => {

@@ -64,7 +64,10 @@ export default function PluginGenerator() {
   const [isSavedPluginsModalOpen, setIsSavedPluginsModalOpen] = useState(false)
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL
+<<<<<<< HEAD
+=======
   const OPENAI_API_KEY = process.env.NEXT_PUBLIC_OPENAI_API_KEY
+>>>>>>> 8cbc740c295627946f82b803a9a2edb6afc87347
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -94,14 +97,28 @@ export default function PluginGenerator() {
 
   const generateCode = async () => {
     try {
+<<<<<<< HEAD
+      console.log("\n=== Starting Code Generation ===")
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+      console.log("Using API URL:", apiUrl)
+      
       // First check if we have plugin details
       if (!pluginDetails) {
+        console.log("No plugin details - showing modal")
+=======
+      // First check if we have plugin details
+      if (!pluginDetails) {
+>>>>>>> 8cbc740c295627946f82b803a9a2edb6afc87347
         setShowPluginDetailsModal(true)
         return
       }
 
       // Then check for description or files
       if (!description && attachedFiles.length === 0) {
+<<<<<<< HEAD
+        console.log("No description or files")
+=======
+>>>>>>> 8cbc740c295627946f82b803a9a2edb6afc87347
         setError("Please enter a description or attach files.")
         return
       }
@@ -110,8 +127,16 @@ export default function PluginGenerator() {
       setError(null)
 
       let fullRequest = description
+<<<<<<< HEAD
+      console.log("\n1. Request Preparation:")
+      console.log("Description:", description)
 
       if (attachedFiles.length > 0) {
+        console.log("Processing files:", attachedFiles.map(f => f.name))
+=======
+
+      if (attachedFiles.length > 0) {
+>>>>>>> 8cbc740c295627946f82b803a9a2edb6afc87347
         for (const file of attachedFiles) {
           if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
             const arrayBuffer = await file.arrayBuffer()
@@ -124,6 +149,16 @@ export default function PluginGenerator() {
         }
       }
 
+<<<<<<< HEAD
+      const requestBody = {
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `Generate a WordPress plugin with the following details:
+=======
       console.log("Sending request to OpenAI API...")
       const result = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
@@ -142,12 +177,95 @@ export default function PluginGenerator() {
             {
               role: "user",
               content: `Generate a WordPress plugin with the following details:
+>>>>>>> 8cbc740c295627946f82b803a9a2edb6afc87347
 Name: ${pluginDetails.name}
 Plugin URI: ${pluginDetails.uri}
 Description: ${pluginDetails.description}
 Version: ${pluginDetails.version}
 Author: ${pluginDetails.author}
 
+<<<<<<< HEAD
+Functionality: ${fullRequest}
+
+Generate only the raw PHP code for a WordPress plugin. Do not include markdown formatting or code fences. The code should start with <?php and be production-ready, following WordPress coding standards.`
+              }
+            ]
+          }
+        ]
+      }
+
+      console.log("\n2. Making API Request:")
+      const fullUrl = `${apiUrl}/api/generate`
+      console.log("Making request to:", fullUrl)
+
+      try {
+        const response = await fetch(fullUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestBody),
+        })
+
+        console.log("\n3. Received Response:")
+        console.log("Status:", response.status)
+        console.log("Status Text:", response.statusText)
+        
+        // Try to read the response as text first
+        const rawText = await response.text()
+        console.log("Raw Response Text:", rawText)
+
+        try {
+          // Then parse it as JSON
+          const data = rawText ? JSON.parse(rawText) : null
+          console.log("Parsed Response Data:", data)
+
+          if (!response.ok) {
+            throw new Error(data?.error || `HTTP error! status: ${response.status}`)
+          }
+
+          if (data.error) {
+            throw new Error(data.error)
+          }
+
+          if (data.content) {
+            const generatedCode = data.content
+              .replace(/^[\s\S]*?<\?php\s*/m, "<?php\n")
+              .replace(/```(?:php)?\s*|\s*```$/g, "")
+              .replace(/\n<\?php/g, "")
+              .trim()
+
+            console.log("\n4. Success:")
+            console.log("Generated code length:", generatedCode.length)
+            console.log("Code preview:", generatedCode.substring(0, 200))
+
+            setGeneratedCode(generatedCode)
+            createFileStructure(generatedCode)
+          } else {
+            throw new Error("No code generated in the response")
+          }
+        } catch (parseError) {
+          console.error("Failed to parse JSON response:", parseError)
+          console.error("Raw response was:", rawText)
+          throw new Error("Invalid response format from server")
+        }
+      } catch (fetchError) {
+        console.error("\n❌ Fetch Error:")
+        console.error("Type:", fetchError.constructor.name)
+        console.error("Message:", fetchError.message)
+        console.error("Full error:", fetchError)
+        throw fetchError
+      }
+    } catch (err) {
+      console.error("\n❌ Generation Error:")
+      console.error("Error type:", err.constructor.name)
+      console.error("Error message:", err.message)
+      console.error("Full error:", err)
+      setError(`Error generating code: ${err instanceof Error ? err.message : "Unknown error"}`)
+    } finally {
+      setLoading(false)
+      console.log("\n=== Generation Complete ===")
+=======
 Functionality: ${fullRequest}`,
             },
           ],
@@ -181,6 +299,7 @@ Functionality: ${fullRequest}`,
       setError(`Error generating code: ${err instanceof Error ? err.message : "Unknown error"}`)
     } finally {
       setLoading(false)
+>>>>>>> 8cbc740c295627946f82b803a9a2edb6afc87347
     }
   }
 
@@ -374,7 +493,11 @@ Functionality: ${fullRequest}`,
       const result = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
+<<<<<<< HEAD
+          Authorization: `Bearer ${API_URL}`,
+=======
           Authorization: `Bearer ${OPENAI_API_KEY}`,
+>>>>>>> 8cbc740c295627946f82b803a9a2edb6afc87347
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
