@@ -13,9 +13,8 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   // Remove the experimental section entirely as it's causing issues
-<<<<<<< HEAD
   env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001',
   },
   async rewrites() {
     return [
@@ -25,8 +24,6 @@ const nextConfig = {
       },
     ]
   },
-=======
->>>>>>> 8cbc740c295627946f82b803a9a2edb6afc87347
 }
 
 module.exports = nextConfig

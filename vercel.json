@@ -2,7 +2,6 @@
   "version": 2,
   "builds": [
     {
-<<<<<<< HEAD
       "src": "package.json",
       "use": "@vercel/next"
     }
@@ -10,19 +9,8 @@
   "env": {
     "ANTHROPIC_API_KEY": "@anthropic_api_key",
     "NEXT_PUBLIC_INSTA_WP_API_KEY": "@insta_wp_api_key",
-    "INSTA_WP_API_KEY": "@insta_wp_api_key"
+    "INSTA_WP_API_KEY": "@insta_wp_api_key",
+    "NEXT_PUBLIC_API_URL": "@next_public_api_url"
   }
-=======
-      "src": "server.js",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "server.js"
-    }
-  ]
->>>>>>> 8cbc740c295627946f82b803a9a2edb6afc87347
 }
 
