@@ -1,9 +1,8 @@
 "use client"
 
-export const runtime = "nodejs"
-
 import { useState, useEffect } from "react"
-import { Download, Eye, RefreshCw, Send, Code, Save, FolderOpen } from "lucide-react"
+import { Download, Eye, RefreshCw, Code, Save, FolderOpen } from "lucide-react"
+import OpenAI from "openai"
 import { AdminDetailsModal } from "@/components/admin-details-modal"
 import FileExplorer from "@/components/file-explorer"
 import { CodeEditor } from "@/components/code-editor"
@@ -20,6 +19,9 @@ import mammoth from "mammoth"
 import { CodeSnippetModal } from "@/components/code-snippet-modal"
 import { SavedPluginsModal } from "@/components/saved-plugins-modal"
 import type { FileStructure } from "@/types/shared"
+import { ModelSelector } from "@/components/ModelSelector"
+import { generateResponse } from "@/lib/ollama"
+import { PluginDiscussion } from "@/components/plugin-discussion"
 
 interface ChangelogEntry {
   id: string
@@ -28,6 +30,7 @@ interface ChangelogEntry {
   files?: string[]
   aiResponse?: string
   codeChanges?: string
+  llmUsed?: string
 }
 
 interface SavedPlugin {
@@ -36,6 +39,17 @@ interface SavedPlugin {
   code: string
   description: string
   date: string
+}
+
+interface Message {
+  id: string
+  content: string
+  type: "user" | "assistant"
+  timestamp: string
+  files?: File[]
+  codeUpdate?: string
+  imageUrls?: string[]
+  imageAnalysis?: string[]
 }
 
 export default function PluginGenerator() {
@@ -62,9 +76,8 @@ export default function PluginGenerator() {
   const [showRevisionModal, setShowRevisionModal] = useState(false)
   const [isRevisionInputActive, setIsRevisionInputActive] = useState(false)
   const [isSavedPluginsModalOpen, setIsSavedPluginsModalOpen] = useState(false)
-
-  const API_URL = process.env.NEXT_PUBLIC_API_URL
-  const OPENAI_API_KEY = process.env.NEXT_PUBLIC_OPENAI_API_KEY
+  const [selectedLLM, setSelectedLLM] = useState<string>("openai")
+  const [messages, setMessages] = useState<Message[]>([])
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -94,13 +107,11 @@ export default function PluginGenerator() {
 
   const generateCode = async () => {
     try {
-      // First check if we have plugin details
       if (!pluginDetails) {
         setShowPluginDetailsModal(true)
         return
       }
 
-      // Then check for description or files
       if (!description && attachedFiles.length === 0) {
         setError("Please enter a description or attach files.")
         return
@@ -124,24 +135,26 @@ export default function PluginGenerator() {
         }
       }
 
-      console.log("Sending request to OpenAI API...")
-      const result = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
+      const messages = [
+        {
+          role: "system",
+          content: `You are an expert WordPress plugin developer. Generate only the raw PHP code for a WordPress plugin. Do not include markdown formatting, code fences, or comments. The code should start with <?php and be production-ready, following WordPress coding standards and best practices.
+
+Core Principles:
+- Every generated WordPress plugin or code snippet must be fully functional, error-free, and optimized before output.
+- Reason through multiple implementation possibilities and choose the best one before writing the code.
+- Adhere to WordPress Coding Standards (WPCS) and best practices.
+- Use proper WordPress folder and file structure for plugins.
+- Create modular code, separating core functionality, hooks, templates, and settings into appropriate files.
+- Follow security best practices, including sanitization, validation, escaping, and nonces.
+- Prioritize performance optimization, ensuring no unnecessary queries, loops, or external requests.
+- Ensure compatibility with the latest stable WordPress version.
+- Use unique prefixes for functions and classes to prevent conflicts.
+- Use actions, filters, and WordPress API functions correctly and efficiently.`,
         },
-        body: JSON.stringify({
-          model: "gpt-3.5-turbo",
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are an expert WordPress plugin developer. Generate only the raw PHP code for a WordPress plugin. Do not include markdown formatting, code fences, or comments. The code should start with <?php and be production-ready, following WordPress coding standards.",
-            },
-            {
-              role: "user",
-              content: `Generate a WordPress plugin with the following details:
+        {
+          role: "user",
+          content: `Generate a WordPress plugin with the following details:
 Name: ${pluginDetails.name}
 Plugin URI: ${pluginDetails.uri}
 Description: ${pluginDetails.description}
@@ -149,38 +162,184 @@ Version: ${pluginDetails.version}
 Author: ${pluginDetails.author}
 
 Functionality: ${fullRequest}`,
-            },
-          ],
-          max_tokens: 2000,
+        },
+      ]
+
+      let generatedCode = ""
+
+      if (selectedLLM === "anthropic") {
+        const result = await fetch("/api/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messages,
+            model: "anthropic",
+          }),
+        })
+
+        if (!result.ok) {
+          throw new Error("Failed to generate code")
+        }
+
+        const data = await result.json()
+        generatedCode = data.content
+      } else if (selectedLLM === "openai") {
+        if (!process.env.NEXT_PUBLIC_OPENAI_API_KEY) {
+          throw new Error("OpenAI API key is not configured")
+        }
+
+        const openai = new OpenAI({
+          apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+          dangerouslyAllowBrowser: true,
+        })
+
+        const completion = await openai.chat.completions.create({
+          model: "gpt-3.5-turbo",
+          messages: messages.map((msg) => ({
+            role: msg.role as "system" | "user" | "assistant",
+            content: msg.content,
+          })),
           temperature: 0.7,
-        }),
-      })
+          max_tokens: 2000,
+        })
 
-      if (!result.ok) {
-        throw new Error("Failed to generate code")
-      }
+        if (!completion.choices[0]?.message?.content) {
+          throw new Error("No response from OpenAI")
+        }
 
-      const data = await result.json()
-      console.log("Received response from OpenAI API")
-
-      if (data.choices?.[0]?.message?.content) {
-        const generatedCode = data.choices[0].message.content
-          .replace(/^[\s\S]*?<\?php\s*/m, "<?php\n")
-          .replace(/```(?:php)?\s*|\s*```$/g, "")
-          .replace(/\n<\?php/g, "")
-          .trim()
-
-        console.log("Setting generated code and creating file structure...")
-        setGeneratedCode(generatedCode)
-        createFileStructure(generatedCode)
+        generatedCode = completion.choices[0].message.content
       } else {
-        throw new Error("No code generated in the response")
+        await generateResponse(selectedLLM, messages, (chunk) => {
+          generatedCode += chunk
+        })
       }
+
+      generatedCode = generatedCode
+        .replace(/^[\s\S]*?<\?php\s*/m, "<?php\n")
+        .replace(/```(?:php)?\s*|\s*```$/g, "")
+        .replace(/\n<\?php/g, "")
+        .trim()
+
+      setGeneratedCode(generatedCode)
+      createFileStructure(generatedCode)
     } catch (err) {
       console.error("Error generating code:", err)
       setError(`Error generating code: ${err instanceof Error ? err.message : "Unknown error"}`)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const generateAIResponse = async (
+    userMessage: string,
+    currentCode: string,
+  ): Promise<{ message: string; codeUpdate?: string }> => {
+    const messages = [
+      {
+        role: "system",
+        content: `You are an expert WordPress plugin developer. You will be given the current plugin code and a user request. Your task is to:
+1. Understand the user's request
+2. If code changes are needed, modify the plugin code according to the request
+3. Provide a clear explanation of the changes made
+4. Return both the updated code and a user-friendly response
+5. IMPORTANT: Always return the COMPLETE plugin code, not just the modified section
+
+Current plugin code:
+${currentCode}`,
+      },
+      {
+        role: "user",
+        content: userMessage,
+      },
+    ]
+
+    try {
+      if (selectedLLM === "anthropic") {
+        const result = await fetch("/api/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messages,
+            model: "anthropic",
+          }),
+        })
+
+        if (!result.ok) {
+          throw new Error("Failed to generate AI response")
+        }
+
+        const data = await result.json()
+        return parseAIResponse(data.content)
+      } else if (selectedLLM === "openai") {
+        if (!process.env.NEXT_PUBLIC_OPENAI_API_KEY) {
+          throw new Error("OpenAI API key is not configured")
+        }
+
+        const openai = new OpenAI({
+          apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+          dangerouslyAllowBrowser: true,
+        })
+
+        const completion = await openai.chat.completions.create({
+          model: "gpt-3.5-turbo",
+          messages: messages.map((msg) => ({
+            role: msg.role as "system" | "user" | "assistant",
+            content: msg.content,
+          })),
+          temperature: 0.7,
+          max_tokens: 2000,
+        })
+
+        if (!completion.choices[0]?.message?.content) {
+          throw new Error("No response from OpenAI")
+        }
+
+        return parseAIResponse(completion.choices[0].message.content)
+      } else {
+        let response = ""
+        await generateResponse(selectedLLM, messages, (chunk) => {
+          response += chunk
+        })
+        return parseAIResponse(response)
+      }
+    } catch (error) {
+      console.error("Error generating AI response:", error)
+      throw error
+    }
+  }
+
+  const parseAIResponse = (response: string): { message: string; codeUpdate?: string } => {
+    const codeBlockRegex = /```(?:php)?\s*([\s\S]*?)```/
+    const match = response.match(codeBlockRegex)
+
+    if (match) {
+      const code = match[1]
+        .replace(/^[\s\S]*?<\?php\s*/m, "<?php\n")
+        .replace(/\n<\?php/g, "")
+        .trim()
+
+      const message = response.replace(codeBlockRegex, "").trim()
+
+      if (!code.includes("Plugin Name:") && generatedCode.includes("Plugin Name:")) {
+        const existingHeader = generatedCode.match(/\/\*[\s\S]*?\*\//)?.[0] || ""
+        return {
+          message,
+          codeUpdate: `${existingHeader}\n\n${code}`,
+        }
+      }
+
+      return {
+        message,
+        codeUpdate: code.startsWith("<?php") ? code : `<?php\n${code}`,
+      }
+    }
+
+    return {
+      message: response,
     }
   }
 
@@ -309,7 +468,7 @@ Functionality: ${fullRequest}`,
     setError(null)
 
     try {
-      const response = await fetch(`${API_URL}/export-plugin`, {
+      const response = await fetch("/api/export-plugin", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -321,8 +480,7 @@ Functionality: ${fullRequest}`,
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
       const blob = await response.blob()
@@ -346,151 +504,66 @@ Functionality: ${fullRequest}`,
     }
   }
 
-  const handleRevisionSubmit = async () => {
-    if (!revisionDescription && revisionFiles.length === 0) {
-      setError("Please enter a revision description or attach files.")
-      return
+  const handleSendMessage = async (content: string, files?: File[]) => {
+    const imageUrls: string[] = []
+    const imageAnalysis: string[] = []
+
+    if (files && files.length > 0) {
+      for (const file of files) {
+        const processedFile = await processFile(file)
+        if (processedFile.imageUrl) {
+          imageUrls.push(processedFile.imageUrl)
+          if (processedFile.imageAnalysis) {
+            imageAnalysis.push(processedFile.imageAnalysis)
+          }
+        }
+      }
     }
 
-    setLoading(true)
-    setError(null)
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      content,
+      type: "user",
+      timestamp: new Date().toISOString(),
+      files,
+      imageUrls,
+      imageAnalysis,
+    }
+
+    setMessages((prev) => [...prev, userMessage])
 
     try {
-      let fullRevisionRequest = revisionDescription
+      const imageContext =
+        imageAnalysis.length > 0
+          ? "\n\nImage Context:\n" + imageAnalysis.map((analysis, i) => `Image ${i + 1}: ${analysis}`).join("\n")
+          : ""
 
-      if (revisionFiles.length > 0) {
-        for (const file of revisionFiles) {
-          if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
-            const arrayBuffer = await file.arrayBuffer()
-            const result = await mammoth.extractRawText({ arrayBuffer })
-            fullRevisionRequest += "\n" + result.value
-          } else if (file.type === "text/plain") {
-            const text = await file.text()
-            fullRevisionRequest += "\n" + text
-          }
-        }
+      const aiResponse = await generateAIResponse(content + imageContext, generatedCode)
+
+      if (aiResponse.codeUpdate) {
+        setGeneratedCode(aiResponse.codeUpdate)
+        createFileStructure(aiResponse.codeUpdate)
       }
 
-      const result = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-3.5-turbo",
-          messages: [
-            {
-              role: "system",
-              content:
-                'You are a WordPress plugin developer. You will be given the current plugin code and a revision request. Your task is to modify the plugin code according to the request. First provide a brief explanation of the changes, then after a line containing only "CODE:", provide the complete updated plugin code starting with <?php. The code must be valid PHP and include all necessary WordPress plugin header comments.',
-            },
-            {
-              role: "user",
-              content: `Current plugin code:
-
-${generatedCode}
-
-Revision request: ${fullRevisionRequest}`,
-            },
-          ],
-          max_tokens: 2000,
-          temperature: 0.7,
-        }),
-      })
-
-      if (!result.ok) {
-        throw new Error("Failed to generate AI response")
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        content: aiResponse.message,
+        type: "assistant",
+        timestamp: new Date().toISOString(),
+        codeUpdate: Boolean(aiResponse.codeUpdate),
       }
 
-      const data = await result.json()
-      const aiResponse = data.choices?.[0]?.message?.content
-
-      if (!aiResponse) {
-        throw new Error("No response received from AI")
+      setMessages((prev) => [...prev, assistantMessage])
+    } catch (error) {
+      console.error("Error:", error)
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        content: "Sorry, I encountered an error while processing your request. Please try again.",
+        type: "assistant",
+        timestamp: new Date().toISOString(),
       }
-
-      const parts = aiResponse.split("CODE:")
-      if (parts.length !== 2) {
-        throw new Error("Invalid response format")
-      }
-
-      const explanation = parts[0].trim()
-      let newCode = parts[1]
-        .trim()
-        .replace(/```(?:php)?\s*|\s*```$/g, "")
-        .replace(/^[\s\S]*?(<\?php)/m, "$1")
-        .replace(/\n<\?php/g, "")
-        .trim()
-
-      if (!newCode.startsWith("<?php")) {
-        newCode = "<?php\n" + newCode
-      }
-
-      // Update the code state first
-      setGeneratedCode(newCode)
-
-      // Force recreate the file structure with the new code
-      createFileStructure(newCode)
-
-      // Add to changelog
-      const newEntry: ChangelogEntry = {
-        id: Date.now().toString(),
-        date: new Date().toLocaleDateString(),
-        description: fullRevisionRequest,
-        files: revisionFiles.map((f) => f.name),
-        aiResponse: explanation,
-        codeChanges: newCode,
-      }
-      setChangelog((prev) => [newEntry, ...prev])
-
-      // Reset form
-      setRevisionDescription("")
-      setRevisionFiles([])
-      const richTextareaElement = document.querySelector(".revision-textarea") as HTMLTextAreaElement
-      if (richTextareaElement) {
-        richTextareaElement.value = ""
-      }
-    } catch (err) {
-      console.error("Error submitting revision:", err)
-      setError(`Error submitting revision: ${err instanceof Error ? err.message : "Unknown error"}`)
-    } finally {
-      setLoading(false)
+      setMessages((prev) => [...prev, errorMessage])
     }
-  }
-
-  const handleRevisionInputChange = (value: string) => {
-    setRevisionDescription(value)
-    setIsRevisionInputActive(value.length > 0 || revisionFiles.length > 0)
-  }
-
-  const handleRevisionFilesSelected = (files: File[]) => {
-    setRevisionFiles(files)
-    setIsRevisionInputActive(files.length > 0 || revisionDescription.length > 0)
-  }
-
-  const updateFileStructure = (
-    structure: FileStructure[],
-    path: string | null,
-    newContent: string,
-  ): FileStructure[] => {
-    if (!path) return structure
-
-    const parts = path.split("/")
-    const updateRecursive = (items: FileStructure[]): FileStructure[] => {
-      return items.map((item) => {
-        if (item.name === parts[0]) {
-          if (parts.length === 1 && item.type === "file") {
-            return { ...item, content: newContent }
-          } else if (item.type === "folder" && item.children) {
-            return { ...item, children: updateRecursive(item.children) }
-          }
-        }
-        return item
-      })
-    }
-
-    return updateRecursive(structure)
   }
 
   const handleSavePlugin = () => {
@@ -523,28 +596,135 @@ Revision request: ${fullRevisionRequest}`,
     setError(null)
   }
 
+  const updateFileStructure = (
+    structure: FileStructure[],
+    path: string | null,
+    newContent: string,
+  ): FileStructure[] => {
+    if (!path) return structure
+
+    const parts = path.split("/")
+    const updateRecursive = (items: FileStructure[]): FileStructure[] => {
+      return items.map((item) => {
+        if (item.name === parts[0]) {
+          if (parts.length === 1 && item.type === "file") {
+            return { ...item, content: newContent }
+          } else if (item.type === "folder" && item.children) {
+            return { ...item, children: updateRecursive(item.children) }
+          }
+        }
+        return item
+      })
+    }
+
+    return updateRecursive(structure)
+  }
+
+  const processFile = async (file: File): Promise<{ imageUrl?: string; imageAnalysis?: string } | string> => {
+    if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+      const arrayBuffer = await file.arrayBuffer()
+      const result = await mammoth.extractRawText({ arrayBuffer })
+      return result.value
+    } else if (file.type === "text/plain") {
+      return await file.text()
+    } else if (file.type.startsWith("image/")) {
+      const reader = new FileReader()
+      return new Promise((resolve, reject) => {
+        reader.onload = (e) => {
+          const imageUrl = e.target?.result as string
+          resolve({ imageUrl })
+        }
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+    } else {
+      throw new Error(`Unsupported file type: ${file.type}`)
+    }
+  }
+
+  const handleRevisionSubmit = async (description: string, files?: File[]) => {
+    setRevisionDescription(description)
+    if (files) {
+      setRevisionFiles(files)
+    }
+
+    if (!description && (!files || files.length === 0)) {
+      setError("Please enter a revision description or attach files.")
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    try {
+      let fullRevisionRequest = description
+
+      if (files && files.length > 0) {
+        for (const file of files) {
+          try {
+            const text = await processFile(file)
+            fullRevisionRequest += "\n" + text
+          } catch (error) {
+            console.error(`Error processing file ${file.name}:`, error)
+            setError(`Error processing file ${file.name}. Please try again.`)
+            return
+          }
+        }
+      }
+
+      const aiResponse = await generateAIResponse(fullRevisionRequest, generatedCode)
+
+      if (aiResponse.codeUpdate) {
+        setGeneratedCode(aiResponse.codeUpdate)
+        createFileStructure(aiResponse.codeUpdate)
+      }
+
+      const newEntry: ChangelogEntry = {
+        id: Date.now().toString(),
+        date: new Date().toLocaleDateString(),
+        description: fullRevisionRequest,
+        files: files?.map((f) => f.name),
+        codeChanges: aiResponse.codeUpdate,
+        llmUsed: selectedLLM,
+      }
+      setChangelog((prev) => [newEntry, ...prev])
+
+      setRevisionDescription("")
+      setRevisionFiles([])
+      setShowRevisionModal(false)
+    } catch (err) {
+      console.error("Error submitting revision:", err)
+      setError(`Error submitting revision: ${err instanceof Error ? err.message : "Unknown error"}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
-    <div className="flex h-screen bg-white">
-      <div className="w-[250px] border-r">
+    <div className="flex h-screen overflow-hidden bg-white">
+      {/* Left Column - File Explorer */}
+      <div className="w-[250px] min-w-[250px] border-r flex flex-col overflow-hidden">
         <div className="p-4 border-b">
-          <h2 className="font-semibold mb-2">Files</h2>
-          <div className="h-[calc(100vh-8rem)] overflow-auto">
-            <FileExplorer files={fileStructure} selectedFile={selectedFile} onSelectFile={setSelectedFile} />
-          </div>
+          <h2 className="font-semibold">Files</h2>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          <FileExplorer files={fileStructure} selectedFile={selectedFile} onSelectFile={setSelectedFile} />
         </div>
       </div>
 
-      <div className="w-[calc(50%-125px)] flex flex-col border-r">
-        <div className="border-b p-4">
+      {/* Middle Column - Main Content */}
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden border-r">
+        <div className="flex-none p-4 border-b">
           <h1 className="text-2xl font-bold mb-6">WordPress Plugin Generator</h1>
           <div className="space-y-4">
+            <ModelSelector selectedModel={selectedLLM} onModelChange={setSelectedLLM} />
             <div className="space-y-2">
               <RichTextarea
                 placeholder="Describe the functionality you want (e.g., a plugin that adds a custom post type for reviews)"
                 value={description}
                 onChange={setDescription}
                 onFilesSelected={setAttachedFiles}
-                className="min-h-[100px]"
+                className="min-h-[100px] w-full"
               />
               {attachedFiles.length > 0 && (
                 <div className="text-sm text-gray-500">
@@ -552,13 +732,11 @@ Revision request: ${fullRevisionRequest}`,
                 </div>
               )}
             </div>
-            <div className="flex items-center flex-wrap gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Button
                 onClick={generateCode}
                 disabled={loading || isCreatingPreview}
-                className={`${
-                  hasFilledDetails ? "bg-emerald-600 hover:bg-emerald-700" : "bg-black hover:bg-black/90"
-                } text-white`}
+                className={`${hasFilledDetails ? "bg-emerald-600 hover:bg-emerald-700" : ""}`}
               >
                 {loading ? (
                   <>
@@ -571,34 +749,23 @@ Revision request: ${fullRevisionRequest}`,
                   "Start"
                 )}
               </Button>
-
               <Button variant="outline" onClick={() => setIsSavedPluginsModalOpen(true)} disabled={loading}>
                 <FolderOpen className="mr-2 h-4 w-4" />
                 Load
               </Button>
-
               {(hasFilledDetails || generatedCode) && (
                 <>
                   <Button variant="outline" onClick={downloadPlugin} disabled={loading || isCreatingPreview}>
                     <Download className="mr-2 h-4 w-4" />
-                    Download plugin
+                    Download
                   </Button>
                   <Button variant="outline" onClick={() => setIsCodeSnippetModalOpen(true)} disabled={loading}>
                     <Code className="mr-2 h-4 w-4" />
-                    Code Snippet
+                    Snippet
                   </Button>
                   <Button variant="outline" onClick={handlePreview} disabled={loading || isCreatingPreview}>
-                    {isCreatingPreview ? (
-                      <>
-                        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                        Creating preview...
-                      </>
-                    ) : (
-                      <>
-                        <Eye className="mr-2 h-4 w-4" />
-                        Preview
-                      </>
-                    )}
+                    <Eye className="mr-2 h-4 w-4" />
+                    Preview
                   </Button>
                   <Button variant="outline" onClick={handleSavePlugin} disabled={loading}>
                     <Save className="mr-2 h-4 w-4" />
@@ -610,31 +777,32 @@ Revision request: ${fullRevisionRequest}`,
           </div>
         </div>
 
-        <div className="flex-1 p-4">
-          <Card className="h-full">
-            <Tabs defaultValue="code" className="h-full">
-              <TabsList>
+        <div className="flex-1 p-4 overflow-auto">
+          <Card className="h-full flex flex-col overflow-hidden">
+            <Tabs defaultValue="code" className="flex-1 flex flex-col overflow-hidden">
+              <TabsList className="flex-none">
                 <TabsTrigger value="code">Code</TabsTrigger>
                 <TabsTrigger value="preview">Preview</TabsTrigger>
               </TabsList>
-              <TabsContent value="code" className="h-[calc(100%-40px)]">
-                <CodeEditor
-                  selectedFile={selectedFile}
-                  fileStructure={fileStructure}
-                  onCodeChange={(newCode) => {
-                    if (selectedFile === `${pluginName}/${pluginName}.php`) {
-                      setGeneratedCode(newCode)
-                    }
-                    // Update the file structure with the new code
-                    const updatedStructure = updateFileStructure(fileStructure, selectedFile, newCode)
-                    setFileStructure(updatedStructure)
-                  }}
-                />
+              <TabsContent value="code" className="flex-1 overflow-hidden">
+                <div className="h-full">
+                  <CodeEditor
+                    selectedFile={selectedFile}
+                    fileStructure={fileStructure}
+                    onCodeChange={(newCode) => {
+                      if (selectedFile === `${pluginName}/${pluginName}.php`) {
+                        setGeneratedCode(newCode)
+                      }
+                      const updatedStructure = updateFileStructure(fileStructure, selectedFile, newCode)
+                      setFileStructure(updatedStructure)
+                    }}
+                  />
+                </div>
               </TabsContent>
-              <TabsContent value="preview" className="h-[calc(100%-40px)]">
-                <div className="w-full h-full">
+              <TabsContent value="preview" className="flex-1 overflow-hidden">
+                <div className="h-full">
                   {previewUrl ? (
-                    <iframe src={previewUrl} className="w-full h-full border rounded-md" title="WordPress Preview" />
+                    <iframe src={previewUrl} className="w-full h-full" title="WordPress Preview" />
                   ) : (
                     <div className="flex items-center justify-center h-full text-gray-500">
                       Generate and preview a plugin to see it here
@@ -647,51 +815,23 @@ Revision request: ${fullRevisionRequest}`,
         </div>
       </div>
 
-      <div className="w-[calc(50%-125px)] flex flex-col">
-        <div className="p-4 border-b">
-          <h2 className="text-xl font-semibold">Revision History</h2>
-        </div>
-
-        {generatedCode && (
-          <div className="p-4 border-b space-y-4">
-            <RichTextarea
-              placeholder="Describe the changes needed..."
-              value={revisionDescription}
-              onChange={(value) => handleRevisionInputChange(value)}
-              onFilesSelected={handleRevisionFilesSelected}
-              className="min-h-[100px] revision-textarea"
-            />
-            {revisionFiles.length > 0 && (
-              <div className="text-sm text-gray-500">Attached files: {revisionFiles.map((f) => f.name).join(", ")}</div>
-            )}
-            <div className="flex justify-end">
-              <Button
-                onClick={handleRevisionSubmit}
-                variant="default"
-                className="bg-gray-800 hover:bg-gray-700 text-white"
-                disabled={!isRevisionInputActive}
-              >
-                {loading ? (
-                  <>
-                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                    Submitting...
-                  </>
-                ) : (
-                  <>
-                    <Send className="mr-2 h-4 w-4" />
-                    Request Revision
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-        )}
-
+      {/* Right Column - Plugin Discussion */}
+      <div className="w-[calc(50%-125px)] min-w-[400px] flex flex-col overflow-hidden">
+        <PluginDiscussion
+          messages={messages}
+          onSendMessage={handleSendMessage}
+          className="h-full"
+          onCodeUpdate={(updatedCode) => {
+            setGeneratedCode(updatedCode)
+            createFileStructure(updatedCode)
+          }}
+        />
         <div className="flex-1 overflow-auto p-4">
           <Changelog entries={changelog} />
         </div>
       </div>
 
+      {/* Modals */}
       <AdminDetailsModal isOpen={showAdminModal} onClose={() => setShowAdminModal(false)} details={null} />
       <PluginDetailsModal
         isOpen={showPluginDetailsModal}
@@ -716,26 +856,28 @@ Revision request: ${fullRevisionRequest}`,
         onSubmit={handleRevisionSubmit}
         pluginName={pluginName}
       />
-
       <SavedPluginsModal
         isOpen={isSavedPluginsModalOpen}
         onClose={() => setIsSavedPluginsModalOpen(false)}
         onLoad={handleLoadPlugin}
       />
 
+      {/* Loading Overlay */}
       {isCreatingPreview && (
-        <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full mx-4">
-            <RefreshCw className="h-8 w-8 animate-spin text-blue-500 mx-auto mb-4" />
+            <RefreshCw className="h-8 w-8 animate-spin text-gray-600 mx-auto mb-4" />
             <p className="text-lg font-semibold text-center">Creating preview site...</p>
-            <p className="text-sm text-gray-600 mt-2 text-center">This may take up to a minute. Please wait.</p>
+            <p className="text-sm text-gray-500 mt-2 text-center">This may take up to a minute. Please wait.</p>
           </div>
         </div>
       )}
 
+      {/* Error Toast */}
       {error && (
-        <div className="absolute bottom-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-          {error}
+        <div className="fixed bottom-4 right-4 bg-red-50 border border-red-200 text-red-600 px-6 py-4 rounded-lg shadow-lg">
+          <p className="font-semibold">Error</p>
+          <p className="text-sm mt-1">{error}</p>
         </div>
       )}
     </div>

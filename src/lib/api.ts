@@ -1,6 +1,6 @@
 export async function downloadPlugin(pluginName: string, code: string) {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/export-plugin`, {
+      const response = await fetch(`/api/export-plugin`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -9,10 +9,14 @@ export async function downloadPlugin(pluginName: string, code: string) {
       });
   
       if (!response.ok) {
-        throw new Error('Failed to download plugin');
+        throw new Error(`Failed to download plugin: ${response.status}`);
       }
   
       const blob = await response.blob();
+      if (blob.size === 0) {
+        throw new Error("Received empty response from server");
+      }
+  
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;

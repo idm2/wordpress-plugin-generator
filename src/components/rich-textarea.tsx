@@ -1,49 +1,97 @@
 "use client"
 
-import React, { useRef } from "react"
-import { cn } from "@/lib/utils"
+import { useState, useRef } from "react"
+import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
-import { Paperclip, X } from "lucide-react"
+import { Paperclip, X, FileText, File, ImageIcon } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { processFile } from "@/lib/file-processor"
 
-interface RichTextareaProps extends Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, "onChange"> {
+interface RichTextareaProps {
+  value: string
+  onChange: (value: string) => void
   onFilesSelected?: (files: File[]) => void
-  onChange?: (value: string) => void
+  className?: string
+  placeholder?: string
 }
 
-export function RichTextarea({ className, onFilesSelected, onChange, ...props }: RichTextareaProps) {
+export function RichTextarea({ value, onChange, onFilesSelected, className, placeholder }: RichTextareaProps) {
+  const [attachments, setAttachments] = useState<File[]>([])
+  const [isProcessing, setIsProcessing] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [selectedFiles, setSelectedFiles] = React.useState<File[]>([])
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || [])
-    setSelectedFiles(files)
-    onFilesSelected?.(files)
+  const handleFiles = async (files: File[]) => {
+    setIsProcessing(true)
+    try {
+      const processedFiles = []
+      for (const file of files) {
+        try {
+          const result = await processFile(file)
+          if (result.text) {
+            onChange((prev) => prev + (prev ? "\n\n" : "") + result.text)
+          }
+          processedFiles.push(file)
+        } catch (error) {
+          console.error(`Error processing file ${file.name}:`, error)
+        }
+      }
+      setAttachments((prev) => [...prev, ...processedFiles])
+      onFilesSelected?.(processedFiles)
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
-  const handleRemoveFile = (index: number) => {
-    const newFiles = selectedFiles.filter((_, i) => i !== index)
-    setSelectedFiles(newFiles)
-    onFilesSelected?.(newFiles)
+  const handlePaste = async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(event.clipboardData.items)
+    const files = items
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null)
 
+    if (files.length > 0) {
+      event.preventDefault()
+      await handleFiles(files)
+    }
+  }
+
+  const handleDrop = async (event: React.DragEvent<HTMLTextAreaElement>) => {
+    event.preventDefault()
+    const files = Array.from(event.dataTransfer.files)
+    await handleFiles(files)
+  }
+
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || [])
+    await handleFiles(files)
+  }
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index))
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
     }
   }
 
-  const handleTextChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-    onChange?.(event.target.value)
+  const getFileIcon = (file: File) => {
+    if (file.type.startsWith("image/")) return <ImageIcon className="h-4 w-4" />
+    if (file.type === "application/pdf") return <FileText className="h-4 w-4" />
+    return <File className="h-4 w-4" />
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 w-full">
       <div className="relative">
-        <textarea
-          className={cn(
-            "flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
-            className,
-          )}
-          onChange={handleTextChange}
-          {...props}
+        <Textarea
+          ref={textareaRef}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onPaste={handlePaste}
+          onDrop={handleDrop}
+          onDragOver={(e) => e.preventDefault()}
+          placeholder={placeholder}
+          className={cn("pr-10", className)}
         />
         <Button
           type="button"
@@ -51,27 +99,27 @@ export function RichTextarea({ className, onFilesSelected, onChange, ...props }:
           size="sm"
           className="absolute right-2 top-2 h-6 w-6 p-0"
           onClick={() => fileInputRef.current?.click()}
+          disabled={isProcessing}
         >
           <Paperclip className="h-4 w-4" />
         </Button>
       </div>
 
-      {selectedFiles.length > 0 && (
+      {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {selectedFiles.map((file, index) => (
-            <div key={index} className="flex items-center gap-1 rounded-full bg-secondary px-3 py-1 text-xs">
-              <img
-                src={URL.createObjectURL(file) || "/placeholder.svg"}
-                className="h-4 w-4 rounded-full object-cover"
-                alt={`Preview of ${file.name}`}
-              />
-              <span>{file.name}</span>
+          {attachments.map((file, index) => (
+            <div
+              key={index}
+              className="flex items-center gap-2 bg-secondary/50 hover:bg-secondary/70 transition-colors rounded-lg px-3 py-1.5"
+            >
+              {getFileIcon(file)}
+              <span className="text-sm truncate max-w-[200px]">{file.name}</span>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-4 w-4 p-0"
-                onClick={() => handleRemoveFile(index)}
+                className="h-5 w-5 p-0 hover:bg-secondary/90"
+                onClick={() => removeAttachment(index)}
               >
                 <X className="h-3 w-3" />
               </Button>
@@ -80,7 +128,14 @@ export function RichTextarea({ className, onFilesSelected, onChange, ...props }:
         </div>
       )}
 
-      <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} multiple />
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        onChange={handleFileSelect}
+        multiple
+        accept="image/*,.pdf,.doc,.docx,.txt,.xls,.xlsx"
+      />
     </div>
   )
 }

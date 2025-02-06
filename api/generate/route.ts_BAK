@@ -1,0 +1,9 @@
+const apiResponse = await fetch('https://api.anthropic.com/v1/messages', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'x-api-key': process.env.ANTHROPIC_API_KEY,
+    'anthropic-version': '2024-01-01'
+  },
+  body: JSON.stringify(requestBody)
+}) 
