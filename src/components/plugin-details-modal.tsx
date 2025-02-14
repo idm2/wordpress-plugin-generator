@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 
 export interface PluginDetails {
   name: string
@@ -13,6 +14,7 @@ export interface PluginDetails {
   description: string
   version: string
   author: string
+  structure: "simplified" | "traditional"
 }
 
 interface PluginDetailsModalProps {
@@ -27,7 +29,8 @@ export function PluginDetailsModal({ isOpen, onClose, onSubmit }: PluginDetailsM
     uri: '',
     description: '',
     version: '1.0.0',
-    author: ''
+    author: '',
+    structure: 'simplified'
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -42,7 +45,8 @@ export function PluginDetailsModal({ isOpen, onClose, onSubmit }: PluginDetailsM
       uri: '',
       description: '',
       version: '1.0.0',
-      author: ''
+      author: '',
+      structure: 'simplified'
     })
     onClose()
     setIsSubmitting(false)
@@ -58,7 +62,8 @@ export function PluginDetailsModal({ isOpen, onClose, onSubmit }: PluginDetailsM
             uri: '',
             description: '',
             version: '1.0.0',
-            author: ''
+            author: '',
+            structure: 'simplified'
           })
           onClose()
         }
@@ -117,6 +122,30 @@ export function PluginDetailsModal({ isOpen, onClose, onSubmit }: PluginDetailsM
               placeholder="Your Name"
               required
             />
+          </div>
+          <div className="space-y-2">
+            <Label>Code Structure</Label>
+            <RadioGroup
+              value={details.structure}
+              onValueChange={(value) => setDetails({ ...details, structure: value as "simplified" | "traditional" })}
+              className="flex flex-col space-y-2"
+            >
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="simplified" id="simplified" />
+                <Label htmlFor="simplified" className="font-normal">
+                  Simplified (Single File)
+                </Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <RadioGroupItem value="traditional" id="traditional" />
+                <Label htmlFor="traditional" className="font-normal">
+                  Traditional (Multiple Files)
+                </Label>
+              </div>
+            </RadioGroup>
+            <p className="text-sm text-gray-500 mt-1">
+              Traditional structure is recommended for complex plugins with multiple features.
+            </p>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
