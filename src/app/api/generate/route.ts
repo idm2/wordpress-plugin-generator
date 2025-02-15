@@ -61,52 +61,78 @@ async function handleQwenRequest(messages: ChatMessage[]): Promise<ApiResponse> 
     throw new Error("QWEN_API_KEY is not configured. Please check your environment variables.")
   }
 
-  try {
-    console.log("Attempting Qwen API request with key:", config.QWEN_API_KEY.substring(0, 10) + "...")
-    
-    const requestBody = {
-      model: "qwen-plus",
-      messages: messages.map(msg => ({
-        role: msg.role,
-        content: msg.content
-      })),
-      temperature: 0.7,
-      stream: false
+  const maxRetries = 3;
+  const timeout = 30000; // 30 seconds timeout
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`Attempting Qwen API request (attempt ${attempt}/${maxRetries}) with key:`, config.QWEN_API_KEY.substring(0, 10) + "...")
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      
+      const requestBody = {
+        model: "qwen-plus",
+        messages: messages.map(msg => ({
+          role: msg.role,
+          content: msg.content
+        })),
+        temperature: 0.7,
+        stream: false
+      }
+      
+      console.log("Request body:", JSON.stringify(requestBody, null, 2))
+
+      const response = await fetch("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${config.QWEN_API_KEY}`,
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal
+      })
+
+      clearTimeout(timeoutId);
+      
+      console.log("Qwen API Response Status:", response.status)
+      
+      const responseData = await response.json()
+      console.log("Qwen API Response:", JSON.stringify(responseData, null, 2))
+
+      if (!response.ok) {
+        throw new Error(`QWEN API error: ${response.status} - ${JSON.stringify(responseData)}`)
+      }
+
+      if (!responseData.choices?.[0]?.message?.content) {
+        console.error("Invalid Qwen API response format:", responseData)
+        throw new Error("Invalid response format from QWEN API")
+      }
+
+      return { content: responseData.choices[0].message.content }
+    } catch (error) {
+      console.error(`Qwen API error on attempt ${attempt}:`, {
+        error: error instanceof Error ? error.message : "Unknown error",
+        stack: error instanceof Error ? error.stack : undefined
+      })
+      
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log(`Request timed out after ${timeout}ms`)
+      }
+      
+      // If this was our last attempt, throw the error
+      if (attempt === maxRetries) {
+        throw new Error(`Failed to get response from Qwen API after ${maxRetries} attempts. Last error: ${error instanceof Error ? error.message : "Unknown error"}`)
+      }
+      
+      // Wait before retrying (exponential backoff)
+      const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000)
+      await new Promise(resolve => setTimeout(resolve, delay))
     }
-    
-    console.log("Request body:", JSON.stringify(requestBody, null, 2))
-
-    const response = await fetch("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.QWEN_API_KEY}`,
-      },
-      body: JSON.stringify(requestBody)
-    })
-
-    console.log("Qwen API Response Status:", response.status)
-    
-    const responseData = await response.json()
-    console.log("Qwen API Response:", JSON.stringify(responseData, null, 2))
-
-    if (!response.ok) {
-      throw new Error(`QWEN API error: ${response.status} - ${JSON.stringify(responseData)}`)
-    }
-
-    if (!responseData.choices?.[0]?.message?.content) {
-      console.error("Invalid Qwen API response format:", responseData)
-      throw new Error("Invalid response format from QWEN API")
-    }
-
-    return { content: responseData.choices[0].message.content }
-  } catch (error) {
-    console.error("Detailed Qwen API error:", {
-      error: error instanceof Error ? error.message : "Unknown error",
-      stack: error instanceof Error ? error.stack : undefined
-    })
-    throw error
   }
+  
+  // This should never be reached due to the throw in the loop, but TypeScript needs it
+  throw new Error("Failed to get response from Qwen API")
 }
 
 async function handleOpenAIRequest(messages: ChatMessage[]): Promise<ApiResponse> {
