@@ -1,0 +1,75 @@
+[33mcommit 4aa6851223c41a7d47f60789a475b59b7a8be98c[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: idm2 <sam@idm2.com>
+Date:   Sat Feb 15 12:55:50 2025 +1100
+
+    fix: Updated Qwen API integration with correct endpoint and improved error logging
+
+[1mdiff --git a/src/app/api/generate/route.ts b/src/app/api/generate/route.ts[m
+[1mindex d4b2426..a402ded 100644[m
+[1m--- a/src/app/api/generate/route.ts[m
+[1m+++ b/src/app/api/generate/route.ts[m
+[36m@@ -62,36 +62,49 @@[m [masync function handleQwenRequest(messages: ChatMessage[]): Promise<ApiResponse>[m
+   }[m
+ [m
+   try {[m
+[32m+[m[32m    console.log("Attempting Qwen API request with key:", config.QWEN_API_KEY.substring(0, 10) + "...")[m
+[32m+[m[41m    [m
+[32m+[m[32m    const requestBody = {[m
+[32m+[m[32m      model: "qwen-plus",[m
+[32m+[m[32m      messages: messages.map(msg => ({[m
+[32m+[m[32m        role: msg.role,[m
+[32m+[m[32m        content: msg.content[m
+[32m+[m[32m      })),[m
+[32m+[m[32m      temperature: 0.7,[m
+[32m+[m[32m      stream: false[m
+[32m+[m[32m    }[m
+[32m+[m[41m    [m
+[32m+[m[32m    console.log("Request body:", JSON.stringify(requestBody, null, 2))[m
+[32m+[m
+     const response = await fetch("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions", {[m
+       method: "POST",[m
+       headers: {[m
+         "Content-Type": "application/json",[m
+         "Authorization": `Bearer ${config.QWEN_API_KEY}`,[m
+       },[m
+[31m-      body: JSON.stringify({[m
+[31m-        model: "qwen-plus",[m
+[31m-        messages: messages.map(msg => ({[m
+[31m-          role: msg.role,[m
+[31m-          content: msg.content[m
+[31m-        })),[m
+[31m-        temperature: 0.7,[m
+[31m-        stream: false[m
+[31m-      }),[m
+[32m+[m[32m      body: JSON.stringify(requestBody)[m
+     })[m
+ [m
+[32m+[m[32m    console.log("Qwen API Response Status:", response.status)[m
+[32m+[m[41m    [m
+[32m+[m[32m    const responseData = await response.json()[m
+[32m+[m[32m    console.log("Qwen API Response:", JSON.stringify(responseData, null, 2))[m
+[32m+[m
+     if (!response.ok) {[m
+[31m-      const errorData = await response.json().catch(() => ({}))[m
+[31m-      throw new Error(`QWEN API error: ${response.status} - ${JSON.stringify(errorData)}`)[m
+[32m+[m[32m      throw new Error(`QWEN API error: ${response.status} - ${JSON.stringify(responseData)}`)[m
+     }[m
+ [m
+[31m-    const data = await response.json()[m
+[31m-    if (!data.choices?.[0]?.message?.content) {[m
+[32m+[m[32m    if (!responseData.choices?.[0]?.message?.content) {[m
+[32m+[m[32m      console.error("Invalid Qwen API response format:", responseData)[m
+       throw new Error("Invalid response format from QWEN API")[m
+     }[m
+ [m
+[31m-    return { content: data.choices[0].message.content }[m
+[32m+[m[32m    return { content: responseData.choices[0].message.content }[m
+   } catch (error) {[m
+[31m-    console.error("QWEN API error:", error)[m
+[32m+[m[32m    console.error("Detailed Qwen API error:", {[m
+[32m+[m[32m      error: error instanceof Error ? error.message : "Unknown error",[m
+[32m+[m[32m      stack: error instanceof Error ? error.stack : undefined[m
+[32m+[m[32m    })[m
+     throw error[m
+   }[m
+ }[m

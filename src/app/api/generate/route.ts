@@ -62,36 +62,49 @@ async function handleQwenRequest(messages: ChatMessage[]): Promise<ApiResponse> 
   }
 
   try {
+    console.log("Attempting Qwen API request with key:", config.QWEN_API_KEY.substring(0, 10) + "...")
+    
+    const requestBody = {
+      model: "qwen-plus",
+      messages: messages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      })),
+      temperature: 0.7,
+      stream: false
+    }
+    
+    console.log("Request body:", JSON.stringify(requestBody, null, 2))
+
     const response = await fetch("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${config.QWEN_API_KEY}`,
       },
-      body: JSON.stringify({
-        model: "qwen-plus",
-        messages: messages.map(msg => ({
-          role: msg.role,
-          content: msg.content
-        })),
-        temperature: 0.7,
-        stream: false
-      }),
+      body: JSON.stringify(requestBody)
     })
 
+    console.log("Qwen API Response Status:", response.status)
+    
+    const responseData = await response.json()
+    console.log("Qwen API Response:", JSON.stringify(responseData, null, 2))
+
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      throw new Error(`QWEN API error: ${response.status} - ${JSON.stringify(errorData)}`)
+      throw new Error(`QWEN API error: ${response.status} - ${JSON.stringify(responseData)}`)
     }
 
-    const data = await response.json()
-    if (!data.choices?.[0]?.message?.content) {
+    if (!responseData.choices?.[0]?.message?.content) {
+      console.error("Invalid Qwen API response format:", responseData)
       throw new Error("Invalid response format from QWEN API")
     }
 
-    return { content: data.choices[0].message.content }
+    return { content: responseData.choices[0].message.content }
   } catch (error) {
-    console.error("QWEN API error:", error)
+    console.error("Detailed Qwen API error:", {
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined
+    })
     throw error
   }
 }
