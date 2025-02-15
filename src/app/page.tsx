@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { Download, Eye, RefreshCw, Code, Save, FolderOpen } from "lucide-react"
-import OpenAI from "openai"
+import { OpenAI } from "openai"
 import { AdminDetailsModal } from "@/components/admin-details-modal"
 import FileExplorer from "@/components/file-explorer"
 import { CodeEditor } from "@/components/code-editor"
@@ -19,12 +19,12 @@ import mammoth from "mammoth"
 import { CodeSnippetModal } from "@/components/code-snippet-modal"
 import { SavedPluginsModal } from "@/components/saved-plugins-modal"
 import { ModelSelector } from "@/components/ModelSelector"
-import { generateResponse } from "@/lib/ollama"
 import { PluginDiscussion } from "@/components/plugin-discussion"
 import { processFile } from "@/lib/file-processor"
-import type { FileReference, FileStructure, Message } from "@/types/shared"
+import type { FileReference, FileStructure, Message, ChatMessage, CodeVersion, ProcessedFile } from "@/types/shared"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { VersionUpdateModal } from "@/components/version-update-modal"
+import { config } from "@/config/env"
 
 interface ChangelogEntry {
   id: string
@@ -43,6 +43,12 @@ interface SavedPlugin {
   description: string
   date: string
 }
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: config.OPENAI_API_KEY,
+  dangerouslyAllowBrowser: true,
+})
 
 export default function PluginGenerator() {
   const [loading, setLoading] = useState(false)
@@ -268,13 +274,11 @@ Functionality: ${fullRequest}`,
         })
 
         const completion = await openai.chat.completions.create({
-          model: "gpt-3.5-turbo",
-          messages: messages.map((msg) => ({
-            role: msg.role as "system" | "user" | "assistant",
-            content: msg.content,
-          })),
-          temperature: 0.7,
-          max_tokens: 2000,
+          model: "gpt-4",
+          messages: messages.map(msg => ({
+            role: msg.role,
+            content: msg.content
+          })) as { role: "system" | "user" | "assistant"; content: string }[],
         })
 
         if (!completion.choices[0]?.message?.content) {
@@ -282,10 +286,26 @@ Functionality: ${fullRequest}`,
         }
 
         generatedCode = completion.choices[0].message.content
-      } else {
-        await generateResponse(selectedLLM, messages, (chunk) => {
-          generatedCode += chunk
+      } else if (selectedLLM === "deepseek" || selectedLLM === "qwen") {
+        const result = await fetch("/api/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messages,
+            model: selectedLLM,
+          }),
         })
+
+        if (!result.ok) {
+          throw new Error("Failed to generate code")
+        }
+
+        const data = await result.json()
+        generatedCode = data.content
+      } else {
+        throw new Error(`Unsupported model: ${selectedLLM}`)
       }
 
       generatedCode = generatedCode
@@ -309,39 +329,28 @@ Functionality: ${fullRequest}`,
     userMessage: string,
     currentCode: string,
   ): Promise<{ message: string; codeUpdate?: string }> => {
-    const messages = [
-      {
-        role: "system",
-        content: `You are an expert WordPress plugin developer. You will be given the current plugin code and a user request. Your task is to:
-1. Understand the user's request
-2. If code changes are needed, modify the plugin code according to the request
-3. Provide a clear explanation of the changes made
-4. Return both the updated code and a user-friendly response
-5. IMPORTANT: Always return the COMPLETE plugin code, not just the modified section
-6. When suggesting changes, ensure they work with both simplified and traditional structures
-
-Current plugin code:
-${currentCode}
-
-Structure type: ${pluginDetails?.structure || 'simplified'}
-
-Remember:
-- For traditional structure, put admin-specific code in the Admin class
-- For traditional structure, put public-facing code in the Public class
-- Always maintain proper WordPress coding standards
-- Ensure all functions are properly namespaced
-- Keep the plugin header intact`,
-      },
-      {
-        role: "user",
-        content: userMessage,
-      },
-    ]
+    let response = ""
+    const systemMessage: ChatMessage = {
+      role: "system",
+      content: `You are a WordPress plugin development expert. Your task is to help create or modify WordPress plugins based on user requirements. Current plugin code:\n\n${currentCode}`,
+    }
+    const userMsg: ChatMessage = {
+      role: "user",
+      content: userMessage,
+    }
+    const messages: ChatMessage[] = [systemMessage, userMsg]
 
     try {
-      let response = ""
-      
-      if (selectedLLM === "anthropic") {
+      if (selectedLLM === "openai") {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4",
+          messages: messages.map(msg => ({
+            role: msg.role,
+            content: msg.content
+          })) as { role: "system" | "user" | "assistant"; content: string }[],
+        })
+        response = completion.choices[0].message.content || ""
+      } else if (selectedLLM === "deepseek" || selectedLLM === "qwen") {
         const result = await fetch("/api/generate", {
           method: "POST",
           headers: {
@@ -349,63 +358,23 @@ Remember:
           },
           body: JSON.stringify({
             messages,
-            model: "anthropic",
+            model: selectedLLM,
           }),
         })
 
         if (!result.ok) {
-          throw new Error("Failed to generate AI response")
+          throw new Error("Failed to generate response")
         }
 
         const data = await result.json()
         response = data.content
-      } else if (selectedLLM === "openai") {
-        if (!process.env.NEXT_PUBLIC_OPENAI_API_KEY) {
-          throw new Error("OpenAI API key is not configured")
-        }
-
-        const openai = new OpenAI({
-          apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
-          dangerouslyAllowBrowser: true,
-        })
-
-        const completion = await openai.chat.completions.create({
-          model: "gpt-3.5-turbo",
-          messages: messages.map((msg) => ({
-            role: msg.role as "system" | "user" | "assistant",
-            content: msg.content,
-          })),
-          temperature: 0.7,
-          max_tokens: 2000,
-        })
-
-        if (!completion.choices[0]?.message?.content) {
-          throw new Error("No response from OpenAI")
-        }
-
-        response = completion.choices[0].message.content
       } else {
-        await generateResponse(selectedLLM, messages, (chunk) => {
-          response += chunk
-        })
+        throw new Error(`Unsupported model: ${selectedLLM}`)
       }
 
-      const parsedResponse = parseAIResponse(response)
-      
-      // If we're using traditional structure, ensure the code is properly distributed
-      if (parsedResponse.codeUpdate && pluginDetails?.structure === "traditional") {
-        const code = parsedResponse.codeUpdate
-        // Extract the main functionality and distribute it across files
-        createFileStructure(code)
-        return {
-          message: parsedResponse.message,
-          codeUpdate: code
-        }
-      }
-      
-      return parsedResponse
+      return parseAIResponse(response)
     } catch (error) {
-      console.error("Error generating AI response:", error)
+      console.error("Error generating response:", error)
       throw error
     }
   }
@@ -1065,141 +1034,64 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
   }
 
   const handleSendMessage = async (content: string, files?: File[]) => {
-    const imageUrls: string[] = []
-    const imageAnalysis: string[] = []
-    const processedFiles: ProcessedFile[] = []
+    if (!content.trim() && (!files || files.length === 0)) return
 
-    if (files && files.length > 0) {
-      for (const file of files) {
-        const result = await processFile(file)
-        
-        if (result.metadata) {
-          if (file.type.startsWith("image/") && result.imageUrl) {
-            imageUrls.push(result.imageUrl)
-            imageAnalysis.push(result.imageAnalysis || "Failed to analyze image")
-          } else {
-            processedFiles.push({
-              name: result.metadata.name,
-              type: result.metadata.type,
-              content: result.metadata.content,
-              summary: result.metadata.summary,
-              isReference: true
-            })
-          }
-        }
-      }
-    }
+    const timestamp = new Date().toISOString()
+    const messageId = Date.now().toString()
 
+    // Add user message immediately
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: messageId,
       content,
       type: "user",
-      timestamp: new Date().toISOString(),
-      files: processedFiles,
-      imageUrls,
-      imageAnalysis,
+      timestamp,
     }
 
-    setMessages((prev) => [...prev, userMessage])
+    if (files && files.length > 0) {
+      const processedFiles: FileReference[] = []
+      for (const file of files) {
+        const processed = await processFile(file)
+        if (processed.metadata) {
+          processedFiles.push({
+            name: processed.metadata.name,
+            type: processed.metadata.type,
+            content: processed.metadata.content || "",
+            summary: processed.metadata.summary || "",
+            isReference: true
+          })
+        }
+      }
+      userMessage.files = processedFiles
+    }
 
+    setMessages(prev => [userMessage, ...prev])
+    
     try {
-      // Check for version control commands first
-      const goBackMatch = content.toLowerCase().match(/(?:go back|revert|undo)\s*(?:to\s*v?(\d+(?:\.\d+)?)|(\d+)\s*(?:steps?|versions?)?(?:\s*back)?)/i)
+      const response = await generateAIResponse(content, generatedCode)
       
-      if (goBackMatch && (revertBySteps || revertToVersion) && codeVersions.length > 0) {
-        const versionNumber = goBackMatch[1] // Specific version number
-        const steps = goBackMatch[2] // Number of steps back
-        
-        if (versionNumber && revertToVersion) {
-          // Find version by number
-          const version = codeVersions.find(v => v.version.toLowerCase() === `v${versionNumber.toLowerCase()}`)
-          if (version) {
-            revertToVersion(version.id)
-            const assistantMessage: Message = {
-              id: (Date.now() + 1).toString(),
-              content: `Successfully reverted to version ${version.version}`,
-              type: "assistant",
-              timestamp: new Date().toISOString(),
-              codeUpdate: true
-            }
-            setMessages((prev) => [...prev, assistantMessage])
-            return
-          }
-        } else if (steps && revertBySteps) {
-          // Revert by number of steps
-          const success = revertBySteps(parseInt(steps))
-          if (success) {
-            const assistantMessage: Message = {
-              id: (Date.now() + 1).toString(),
-              content: `Successfully reverted back ${steps} version${steps === "1" ? "" : "s"}`,
-              type: "assistant",
-              timestamp: new Date().toISOString(),
-              codeUpdate: true
-            }
-            setMessages((prev) => [...prev, assistantMessage])
-            return
-          }
-        }
-      }
-
-      // Build context from files with clear separation between reference and content questions
-      let fileContext = ""
-      if (processedFiles.length > 0) {
-        const isAskingAboutFileContent = content.toLowerCase().includes('what') || 
-                                       content.toLowerCase().includes('tell me') || 
-                                       content.toLowerCase().includes('show') || 
-                                       content.toLowerCase().includes('list') ||
-                                       content.toLowerCase().includes('display')
-
-        if (isAskingAboutFileContent) {
-          fileContext = "\n\nHere is the content of the attached files:\n" + processedFiles.map(file => 
-            `=== ${file.name} ===\n${file.content || file.summary || "Content not available"}`
-          ).join("\n\n")
-        } else {
-          fileContext = "\n\nReference Documents:\n" + processedFiles.map(file => 
-            `[${file.name}]:\n${file.content || file.summary || "Content not available"}`
-          ).join("\n\n")
-        }
-      }
-      
-      const imageContext = imageAnalysis.length > 0
-        ? "\n\nAttached Images:\n" + imageAnalysis.map((analysis, i) => `Image ${i + 1}: ${analysis}`).join("\n")
-        : ""
-
-      // If asking about file content, modify the system message
-      const systemMessage = content.toLowerCase().includes('tell me') || content.toLowerCase().includes('what') 
-        ? "You are an assistant helping to read and explain the contents of files. Please focus on describing the actual content of the files rather than suggesting changes to them."
-        : "You are an expert WordPress plugin developer. You will be given the current plugin code and a user request. Your task is to understand the request and provide appropriate assistance."
-
-      const aiResponse = await generateAIResponse(
-        systemMessage + "\n\n" + content + fileContext + imageContext,
-        generatedCode
-      )
-
-      if (aiResponse.codeUpdate) {
-        setGeneratedCode(aiResponse.codeUpdate)
-        createFileStructure(aiResponse.codeUpdate)
-        addCodeVersion(aiResponse.codeUpdate, `AI Update: ${content.slice(0, 100)}${content.length > 100 ? '...' : ''}`)
-      }
-
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: aiResponse.message,
+      // Add AI response
+      const aiMessage: Message = {
+        id: Date.now().toString(),
+        content: response.message,
         type: "assistant",
         timestamp: new Date().toISOString(),
-        codeUpdate: Boolean(aiResponse.codeUpdate),
+        codeUpdate: !!response.codeUpdate
       }
-
-      setMessages((prev) => [...prev, assistantMessage])
+      
+      setMessages(prev => [aiMessage, ...prev])
+      
+      if (response.codeUpdate) {
+        handleCodeUpdate(response.codeUpdate)
+      }
     } catch (error) {
-      console.error("Error:", error)
+      console.error("Error generating AI response:", error)
       const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: "Sorry, I encountered an error while processing your request. Please try again.",
+        id: Date.now().toString(),
+        content: error instanceof Error ? error.message : "An error occurred",
         type: "assistant",
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString()
       }
-      setMessages((prev) => [...prev, errorMessage])
+      setMessages(prev => [errorMessage, ...prev])
     }
   }
 

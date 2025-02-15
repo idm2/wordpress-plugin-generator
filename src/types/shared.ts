@@ -14,8 +14,8 @@ export interface FileStructure {
 export interface FileReference {
   name: string
   type: string
-  content?: string
-  summary?: string
+  content: string
+  summary: string
   isReference: boolean
 }
 
@@ -34,8 +34,8 @@ export interface CodeVersion {
   id: string
   version: string
   code: string
-  description?: string
-  timestamp?: string
+  description: string
+  timestamp: string
 }
 
 export interface ProcessedFile extends File {
@@ -48,6 +48,7 @@ export interface ProcessedFile extends File {
     name: string
     isReference?: boolean
     error?: string
+    content?: string
     summary?: string
   }
 }

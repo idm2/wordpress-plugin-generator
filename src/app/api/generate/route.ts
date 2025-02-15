@@ -1,118 +1,157 @@
 import { NextResponse } from "next/server"
-import type { ChatMessage, ApiResponse } from "@/types/shared"
+import { config } from "../../../../config/env"
+import type { ChatMessage } from "@/types/shared"
+import OpenAI from "openai"
 
-async function handleAnthropicRequest(messages: ChatMessage[]): Promise<ApiResponse> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error("ANTHROPIC_API_KEY is not configured")
+interface ApiResponse {
+  content: string
+}
+
+async function handleDeepSeekRequest(messages: ChatMessage[]): Promise<ApiResponse> {
+  if (!config.DEEPSEEK_API_KEY) {
+    throw new Error("DEEPSEEK_API_KEY is not configured. Please check your environment variables.")
   }
 
-  const systemMessage = messages.find((m) => m.role === "system")?.content || ""
-  const userMessage = messages.find((m) => m.role === "user")?.content || ""
-
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    // First try using fetch to test the connection
+    const testResponse = await fetch("https://api.deepseek.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2024-01-01",
+        "Authorization": `Bearer ${config.DEEPSEEK_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "claude-2",
-        max_tokens: 4000,
-        messages: [
-          {
-            role: "user",
-            content: `${systemMessage}\n\n${userMessage}`,
-          },
-        ],
+        model: "deepseek-chat",
+        messages: messages.map(msg => ({
+          role: msg.role,
+          content: msg.content
+        })),
+        temperature: 0.7,
+        stream: false
       }),
     })
 
-    const data = await response.json()
+    const responseData = await testResponse.json().catch(() => ({}))
+    console.log("DeepSeek API Response:", {
+      status: testResponse.status,
+      statusText: testResponse.statusText,
+      data: responseData
+    })
 
-    if (!response.ok) {
-      throw new Error(`Anthropic API error: ${JSON.stringify(data)}`)
+    if (!testResponse.ok) {
+      throw new Error(`DeepSeek API error: ${testResponse.status} - ${JSON.stringify(responseData)}`)
     }
 
-    if (!data.content?.[0]?.text) {
-      throw new Error("Invalid response format from Anthropic API")
+    if (!responseData.choices?.[0]?.message?.content) {
+      throw new Error("Invalid response format from DeepSeek API")
     }
 
-    return { content: data.content[0].text }
+    return { content: responseData.choices[0].message.content }
   } catch (error) {
-    console.error("Anthropic API error:", error)
+    console.error("DeepSeek API error details:", {
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined
+    })
     throw error
   }
 }
 
-async function handleOllamaRequest(model: string, messages: ChatMessage[]): Promise<ApiResponse> {
+async function handleQwenRequest(messages: ChatMessage[]): Promise<ApiResponse> {
+  if (!config.QWEN_API_KEY) {
+    throw new Error("QWEN_API_KEY is not configured. Please check your environment variables.")
+  }
+
   try {
-    const response = await fetch("http://localhost:11434/api/chat", {
+    const response = await fetch("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Authorization": `Bearer ${config.QWEN_API_KEY}`,
       },
       body: JSON.stringify({
-        model,
-        messages: messages.map((m) => ({
-          role: m.role,
-          content: m.content,
+        model: "qwen-plus",
+        messages: messages.map(msg => ({
+          role: msg.role,
+          content: msg.content
         })),
-        stream: false,
+        temperature: 0.7,
+        stream: false
       }),
     })
 
-    const data = await response.json()
-
     if (!response.ok) {
-      throw new Error(`Ollama API error: ${JSON.stringify(data)}`)
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(`QWEN API error: ${response.status} - ${JSON.stringify(errorData)}`)
     }
 
-    if (!data.message?.content) {
-      throw new Error("Invalid response format from Ollama API")
+    const data = await response.json()
+    if (!data.choices?.[0]?.message?.content) {
+      throw new Error("Invalid response format from QWEN API")
     }
 
-    return { content: data.message.content }
+    return { content: data.choices[0].message.content }
   } catch (error) {
-    if (error instanceof Error && error.message.includes("fetch failed")) {
-      throw new Error("Failed to connect to Ollama. Is it running on localhost:11434?")
+    console.error("QWEN API error:", error)
+    throw error
+  }
+}
+
+async function handleOpenAIRequest(messages: ChatMessage[]): Promise<ApiResponse> {
+  if (!config.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is not configured. Please check your environment variables.")
+  }
+
+  const openai = new OpenAI({
+    apiKey: config.OPENAI_API_KEY,
+  })
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: config.OPENAI_API_MODEL,
+      messages: messages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      })),
+    })
+
+    if (!response.choices?.[0]?.message?.content) {
+      throw new Error("Invalid response format from OpenAI API")
     }
-    console.error("Ollama API error:", error)
+
+    return { content: response.choices[0].message.content }
+  } catch (error) {
+    console.error("OpenAI API error:", error)
     throw error
   }
 }
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json()
+    const { messages, model = "openai" } = await req.json()
 
-    if (!body?.messages || !Array.isArray(body.messages) || !body.model) {
-      return NextResponse.json({ error: "Invalid request format: missing messages or model" }, { status: 400 })
+    let result: ApiResponse
+
+    switch (model) {
+      case "deepseek":
+        result = await handleDeepSeekRequest(messages)
+        break
+      case "qwen":
+        result = await handleQwenRequest(messages)
+        break
+      case "openai":
+        result = await handleOpenAIRequest(messages)
+        break
+      default:
+        throw new Error(`Unsupported model: ${model}`)
     }
 
-    const { messages, model } = body
-
-    try {
-      let result: ApiResponse
-
-      if (model === "anthropic") {
-        result = await handleAnthropicRequest(messages)
-      } else {
-        result = await handleOllamaRequest(model, messages)
-      }
-
-      return NextResponse.json(result)
-    } catch (error) {
-      console.error("API error:", error)
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : "Unknown error occurred" },
-        { status: 500 },
-      )
-    }
+    return NextResponse.json(result)
   } catch (error) {
-    console.error("Request parsing error:", error)
-    return NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 })
+    console.error("API error:", error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unknown error occurred" },
+      { status: 500 }
+    )
   }
 }
 

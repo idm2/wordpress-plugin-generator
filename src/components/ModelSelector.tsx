@@ -1,81 +1,43 @@
 "use client"
 
-import { useEffect, useState } from "react"
-
-interface OllamaModel {
-  name: string
-  size: string
-  digest: string
-  modified_at: string
-}
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectGroup, SelectLabel, SelectItem } from "@/components/ui/select"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { AlertTriangle } from "lucide-react"
 
 interface ModelSelectorProps {
   selectedModel: string
   onModelChange: (model: string) => void
 }
 
-async function listModels(): Promise<OllamaModel[]> {
-  try {
-    const response = await fetch("http://localhost:11434/api/tags")
-    if (!response.ok) {
-      throw new Error("Failed to fetch models")
-    }
-    const data = await response.json()
-    return data.models || []
-  } catch (error) {
-    console.error("Error fetching models:", error)
-    return [] // Return empty array instead of throwing
-  }
-}
-
 export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorProps) {
-  const [models, setModels] = useState<OllamaModel[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    async function fetchModels() {
-      try {
-        const availableModels = await listModels()
-        setModels(availableModels)
-
-        // If no model is selected and we have models, select the first one
-        if (!selectedModel && availableModels.length > 0) {
-          onModelChange(availableModels[0].name)
-        }
-      } catch (err) {
-        setError("Failed to fetch models. Is Ollama running?")
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchModels()
-  }, [selectedModel, onModelChange])
-
-  if (loading) {
-    return <div>Loading models...</div>
-  }
-
-  if (error) {
-    return <div className="text-red-500">{error}</div>
-  }
-
   return (
-    <select
-      value={selectedModel}
-      onChange={(e) => onModelChange(e.target.value)}
-      className="w-[180px] rounded-md border border-input bg-background px-3 py-2"
-    >
-      <option value="anthropic">Anthropic Claude</option>
-      <option value="openai">OpenAI</option>
-      {models.map((model) => (
-        <option key={model.digest} value={model.name}>
-          {model.name}
-        </option>
-      ))}
-    </select>
+    <div className="space-y-2">
+      <Select
+        value={selectedModel}
+        onValueChange={(value) => onModelChange(value)}
+      >
+        <SelectTrigger className="w-[180px] bg-white">
+          <SelectValue placeholder="Select a model" />
+        </SelectTrigger>
+        <SelectContent className="bg-white">
+          <SelectGroup>
+            <SelectLabel>AI Models</SelectLabel>
+            <SelectItem value="openai">OpenAI GPT-4</SelectItem>
+            <SelectItem value="qwen">QWEN</SelectItem>
+            <SelectItem value="deepseek">DeepSeek</SelectItem>
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+      
+      {selectedModel === "deepseek" && (
+        <Alert variant="destructive" className="bg-yellow-50 text-yellow-800 border-yellow-600">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            DeepSeek is currently unavailable due to resource constraints on the DeepSeek platform
+          </AlertDescription>
+        </Alert>
+      )}
+    </div>
   )
 }
 
