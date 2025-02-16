@@ -168,25 +168,167 @@ export async function POST(req: Request) {
   try {
     const { messages, model = "openai" } = await req.json()
 
-    let result: ApiResponse
+    // Create a new TransformStream for streaming
+    const encoder = new TextEncoder()
+    const stream = new TransformStream()
+    const writer = stream.writable.getWriter()
 
-    switch (model) {
-      case "deepseek":
-        result = await handleDeepSeekRequest(messages)
-        break
-      case "qwen":
-        result = await handleQwenRequest(messages)
-        break
-      case "openai":
-        result = await handleOpenAIRequest(messages)
-        break
-      default:
-        throw new Error(`Unsupported model: ${model}`)
+    // Start the response stream
+    const response = new Response(stream.readable, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    })
+
+    // Handle different models
+    const writeChunk = async (chunk: string) => {
+      await writer.write(encoder.encode(`data: ${JSON.stringify({ content: chunk })}\n\n`))
     }
 
-    return NextResponse.json(result)
+    const writeError = async (error: string) => {
+      await writer.write(encoder.encode(`data: ${JSON.stringify({ error })}\n\n`))
+      await writer.close()
+    }
+
+    // Process based on model selection
+    try {
+      switch (model) {
+        case "openai": {
+          if (!config.OPENAI_API_KEY) {
+            throw new Error("OPENAI_API_KEY is not configured")
+          }
+
+          const openai = new OpenAI({
+            apiKey: config.OPENAI_API_KEY,
+          })
+
+          const completion = await openai.chat.completions.create({
+            model: config.OPENAI_API_MODEL,
+            messages: messages.map(msg => ({
+              role: msg.role,
+              content: msg.content
+            })),
+            stream: true,
+          })
+
+          for await (const chunk of completion) {
+            const content = chunk.choices[0]?.delta?.content || ''
+            if (content) {
+              await writeChunk(content)
+            }
+          }
+          break
+        }
+        
+        case "deepseek": {
+          if (!config.DEEPSEEK_API_KEY) {
+            throw new Error("DEEPSEEK_API_KEY is not configured")
+          }
+
+          const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${config.DEEPSEEK_API_KEY}`,
+            },
+            body: JSON.stringify({
+              model: "deepseek-chat",
+              messages: messages.map(msg => ({
+                role: msg.role,
+                content: msg.content
+              })),
+              temperature: 0.7,
+              stream: true
+            }),
+          })
+
+          if (!response.ok) {
+            throw new Error(`DeepSeek API error: ${response.status}`)
+          }
+
+          const reader = response.body?.getReader()
+          if (!reader) throw new Error("No response stream available")
+
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            
+            const chunk = new TextDecoder().decode(value)
+            const lines = chunk.split('\n').filter(Boolean)
+            
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = JSON.parse(line.slice(6))
+                if (data.choices?.[0]?.delta?.content) {
+                  await writeChunk(data.choices[0].delta.content)
+                }
+              }
+            }
+          }
+          break
+        }
+
+        case "qwen": {
+          if (!config.QWEN_API_KEY) {
+            throw new Error("QWEN_API_KEY is not configured")
+          }
+
+          const response = await fetch("https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${config.QWEN_API_KEY}`,
+            },
+            body: JSON.stringify({
+              model: "qwen-plus",
+              messages: messages.map(msg => ({
+                role: msg.role,
+                content: msg.content
+              })),
+              temperature: 0.7,
+              stream: true
+            }),
+          })
+
+          if (!response.ok) {
+            throw new Error(`Qwen API error: ${response.status}`)
+          }
+
+          const reader = response.body?.getReader()
+          if (!reader) throw new Error("No response stream available")
+
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            
+            const chunk = new TextDecoder().decode(value)
+            const lines = chunk.split('\n').filter(Boolean)
+            
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = JSON.parse(line.slice(6))
+                if (data.choices?.[0]?.delta?.content) {
+                  await writeChunk(data.choices[0].delta.content)
+                }
+              }
+            }
+          }
+          break
+        }
+
+        default:
+          throw new Error(`Unsupported model: ${model}`)
+      }
+
+      await writer.close()
+    } catch (error) {
+      await writeError(error instanceof Error ? error.message : "Unknown error occurred")
+    }
+
+    return response
   } catch (error) {
-    console.error("API error:", error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error occurred" },
       { status: 500 }

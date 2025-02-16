@@ -1,3 +1,22 @@
+export interface ChangelogEntry {
+  id: string
+  date: string
+  description: string
+  files?: string[]
+  aiResponse?: string
+  codeChanges?: string
+  llmUsed?: string
+}
+
+export interface PluginDetails {
+  name: string
+  uri: string
+  description: string
+  version: string
+  author: string
+  structure: "simplified" | "traditional"
+}
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant"
   content: string
@@ -51,5 +70,19 @@ export interface ProcessedFile extends File {
     content?: string
     summary?: string
   }
+}
+
+export interface CompletePluginState {
+  id: string
+  name: string
+  code: string
+  description: string
+  date: string
+  pluginDetails: PluginDetails | null
+  messages: Message[]
+  codeVersions: CodeVersion[]
+  currentVersionIndex: number
+  fileStructure: FileStructure[]
+  changelog: ChangelogEntry[]
 }
 

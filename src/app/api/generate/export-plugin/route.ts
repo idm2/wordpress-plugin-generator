@@ -26,7 +26,14 @@ export async function POST(req: Request) {
 
     if (structure === "simplified") {
       // For simplified structure, just add the main plugin file
-      pluginFolder.file(`${pluginName}.php`, code)
+      const cleanCode = code
+        .replace(/^```(?:php)?\s*|\s*```$/g, "")  // Remove code block markers
+        .replace(/^[\s\S]*?<\?php/, "<?php")      // Ensure clean PHP opening tag
+        .replace(/\n<\?php/g, "")                 // Remove any additional PHP tags
+        .trim()
+
+      const finalCode = cleanCode.startsWith("<?php") ? cleanCode : `<?php\n${cleanCode}`
+      pluginFolder.file(`${pluginName}.php`, finalCode)
     } else {
       // For traditional structure, create the full WordPress plugin structure
       const headerMatch = code.match(/\/\*[\s\S]*?\*\//)

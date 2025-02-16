@@ -43,6 +43,7 @@ export function PluginDiscussion({
   const [inputValue, setInputValue] = useState("")
   const [files, setFiles] = useState<File[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [shouldClearAttachments, setShouldClearAttachments] = useState(false)
 
   const handleSubmit = async () => {
     if ((!inputValue.trim() && files.length === 0) || isSubmitting) return
@@ -78,8 +79,11 @@ export function PluginDiscussion({
         await onSendMessage(inputValue, files)
       }
       
+      // Clear input and files after successful submission
       setInputValue("")
       setFiles([])
+      setShouldClearAttachments(true)
+      setTimeout(() => setShouldClearAttachments(false), 100)
     } catch (error) {
       console.error("Failed to send message:", error)
     } finally {
@@ -108,6 +112,7 @@ export function PluginDiscussion({
           placeholder="Describe the changes needed..."
           className="min-h-[100px]"
           selectedModel={selectedModel}
+          clearAttachments={shouldClearAttachments}
         />
         <div className="flex justify-end mt-2">
           <Button onClick={handleSubmit} disabled={isSubmitting || (!inputValue.trim() && files.length === 0)}>
@@ -128,7 +133,7 @@ export function PluginDiscussion({
       <Card className="flex-1 overflow-hidden pl-5">
         <div className="h-full overflow-y-auto p-4">
           <div className="space-y-4">
-            {[...messages].reverse().map((message) => (
+            {messages.map((message) => (
               <div
                 key={message.id}
                 className={cn("flex gap-3", message.type === "assistant" ? "flex-row" : "flex-row-reverse")}

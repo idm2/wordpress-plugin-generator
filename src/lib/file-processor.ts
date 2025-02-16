@@ -121,8 +121,19 @@ async function readWordContent(file: File): Promise<{ content: string; summary: 
     const mammoth = (await import('mammoth')).default
     const arrayBuffer = await file.arrayBuffer()
     const result = await mammoth.extractRawText({ arrayBuffer })
-    const content = result.value
+    
+    if (!result.value) {
+      throw new Error('No content extracted from Word document')
+    }
+    
+    const content = result.value.trim()
     const summary = content.slice(0, 100) + (content.length > 100 ? "..." : "")
+    
+    // Log any warnings
+    if (result.messages.length > 0) {
+      console.log("Word document extraction warnings:", result.messages)
+    }
+    
     return { content, summary }
   } catch (error) {
     console.error('Error reading Word document:', error)
@@ -143,38 +154,53 @@ async function readTextContent(file: File): Promise<{ content: string; summary: 
 
 export async function processFile(file: File): Promise<ProcessedFile> {
   const type = file.type.toLowerCase()
+  const extension = file.name.split('.').pop()?.toLowerCase() || ''
+  
   const metadata = {
     type: file.type,
     size: file.size,
     lastModified: file.lastModified,
     name: file.name,
-    isReference: true // Always mark as reference material
+    isReference: true
   }
 
   try {
     // Handle text-based documents
-    if (type === "text/plain") {
+    if (type === "text/plain" || extension === 'txt' || !type) {
       const { content, summary } = await readTextContent(file)
       return {
         metadata: { ...metadata, content, summary }
       }
     }
     // Handle Word documents
-    else if (type.includes("word") || type.includes("officedocument.wordprocessing")) {
+    else if (
+      type.includes("word") || 
+      type.includes("officedocument.wordprocessing") ||
+      extension === 'doc' ||
+      extension === 'docx'
+    ) {
+      console.log("Processing Word document:", file.name)
       const { content, summary } = await readWordContent(file)
       return {
         metadata: { ...metadata, content, summary }
       }
     }
     // Handle PDF files
-    else if (type === "application/pdf") {
+    else if (type === "application/pdf" || extension === 'pdf') {
+      console.log("Processing PDF document:", file.name)
       const { content, summary } = await readPdfContent(file)
       return {
         metadata: { ...metadata, content, summary }
       }
     }
     // Handle Excel files
-    else if (type.includes("excel") || type.includes("spreadsheet") || file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+    else if (
+      type.includes("excel") || 
+      type.includes("spreadsheet") || 
+      extension === 'xlsx' || 
+      extension === 'xls'
+    ) {
+      console.log("Processing Excel document:", file.name)
       const { content, summary } = await readExcelContent(file)
       return {
         metadata: { ...metadata, content, summary }
@@ -182,43 +208,49 @@ export async function processFile(file: File): Promise<ProcessedFile> {
     }
     // Handle images
     else if (type.startsWith("image/")) {
+      console.log("Processing image:", file.name)
       const formData = new FormData()
       formData.append("file", file)
 
-      const response = await fetch("/api/generate/analyze-image", {
-        method: "POST",
-        body: formData,
-      })
+      try {
+        const response = await fetch("/api/generate/analyze-image", {
+          method: "POST",
+          body: formData,
+        })
 
-      if (!response.ok) {
-        throw new Error(`Failed to analyze image: ${response.statusText}`)
-      }
+        if (!response.ok) {
+          throw new Error(`Failed to analyze image: ${response.statusText}`)
+        }
 
-      const data = await response.json()
-      const imageUrl = URL.createObjectURL(file)
+        const data = await response.json()
+        const imageUrl = URL.createObjectURL(file)
 
-      return {
-        imageUrl,
-        imageAnalysis: data.description,
-        metadata
+        return {
+          imageUrl,
+          imageAnalysis: data.description,
+          metadata
+        }
+      } catch (error) {
+        console.error("Error analyzing image:", error)
+        // Return the image URL even if analysis fails
+        return {
+          imageUrl: URL.createObjectURL(file),
+          metadata
+        }
       }
     }
 
-    // For unsupported files
+    // Default case for unsupported file types
     return {
       metadata: {
         ...metadata,
-        error: "Unsupported file type"
+        content: `File type ${type} (${extension}) is not supported for content extraction.`,
+        summary: undefined
       }
     }
   } catch (error) {
-    console.error(`Error processing file ${file.name}:`, error)
-    return {
-      metadata: {
-        ...metadata,
-        error: error instanceof Error ? error.message : "Unknown error"
-      }
-    }
+    console.error("Error processing file:", error)
+    throw error
   }
 }
   

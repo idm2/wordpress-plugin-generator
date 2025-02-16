@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Paperclip, X, FileText, File, ImageIcon, Eye } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { processFile } from "@/lib/file-processor"
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip"
 
 interface ProcessedFile extends File {
   imageUrl?: string
@@ -28,24 +29,31 @@ interface RichTextareaProps {
   className?: string
   placeholder?: string
   selectedModel?: string
+  clearAttachments?: boolean
 }
 
-export function RichTextarea({ value, onChange, onFilesSelected, className, placeholder, selectedModel = 'openai' }: RichTextareaProps) {
+export function RichTextarea({ value, onChange, onFilesSelected, className, placeholder, selectedModel = 'openai', clearAttachments = false }: RichTextareaProps) {
   const [attachments, setAttachments] = useState<ProcessedFile[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Clear attachments when value is cleared (after submission)
+  // Clear attachments only when explicitly told to do so
   useEffect(() => {
-    if (!value) {
+    if (clearAttachments) {
+      // Clear all object URLs before removing attachments
+      attachments.forEach((file) => {
+        if (file.imageUrl) {
+          URL.revokeObjectURL(file.imageUrl)
+        }
+      })
       setAttachments([])
       if (fileInputRef.current) {
         fileInputRef.current.value = ""
       }
       onFilesSelected?.([])
     }
-  }, [value, onFilesSelected])
+  }, [clearAttachments, onFilesSelected, attachments])
 
   // Cleanup object URLs when component unmounts
   useEffect(() => {
@@ -118,11 +126,13 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
   }
 
   const getFileIcon = (file: File) => {
-    if (file.type.startsWith("image/")) return <ImageIcon className="h-4 w-4" />
-    if (file.type === "application/pdf") return <FileText className="h-4 w-4" />
-    if (file.type.includes("word") || file.type.includes("officedocument")) return <FileText className="h-4 w-4" />
-    if (file.type.includes("excel") || file.type.includes("spreadsheet")) return <FileText className="h-4 w-4" />
-    return <File className="h-4 w-4" />
+    const type = file.type.toLowerCase()
+    if (type.startsWith("image/")) return <ImageIcon className="h-4 w-4 text-blue-500" />
+    if (type === "application/pdf") return <FileText className="h-4 w-4 text-red-500" />
+    if (type.includes("word") || type.includes("officedocument")) return <FileText className="h-4 w-4 text-blue-600" />
+    if (type.includes("excel") || type.includes("spreadsheet")) return <FileText className="h-4 w-4 text-green-600" />
+    if (type === "text/plain" || file.name.toLowerCase().endsWith('.txt')) return <FileText className="h-4 w-4 text-gray-600" />
+    return <File className="h-4 w-4 text-gray-500" />
   }
 
   const getFileLabel = (file: File) => {
@@ -148,16 +158,25 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
           className={cn("pr-20", className)}
         />
         <div className="absolute right-2 top-2 flex gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isProcessing}
-          >
-            <Paperclip className="h-4 w-4" />
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isProcessing}
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Attach files (images, PDFs, Word docs, etc.)</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </div>
 
@@ -204,15 +223,24 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
                   </div>
                 )}
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-5 w-5 p-0 hover:bg-secondary/90"
-                onClick={() => removeAttachment(index)}
-              >
-                <X className="h-3 w-3" />
-              </Button>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-5 w-5 p-0 hover:bg-secondary/90"
+                      onClick={() => removeAttachment(index)}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Remove this attachment</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
           ))}
         </div>

@@ -4,6 +4,7 @@ import { ChevronRight, ChevronDown, File, Folder } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { FileStructure } from '@/types/shared'
 import { useState, useEffect } from 'react'
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip"
 
 interface FileExplorerProps {
   files: FileStructure[]
@@ -69,26 +70,35 @@ const FileExplorer = ({ files, selectedFile, onSelectFile }: FileExplorerProps) 
 
     return (
       <div key={fullPath}>
-        <div
-          className={cn(
-            "flex items-center py-1 px-2 text-sm cursor-pointer hover:bg-accent/50 transition-colors duration-200 relative group",
-            isCurrentFolder && "font-bold"
-          )}
-          style={{ paddingLeft: `${level * 12}px` }}
-          onClick={() => toggleFolder(fullPath)}
-        >
-          <div className="absolute left-0 top-0 bottom-0 w-[1px] bg-border/50 group-hover:bg-border" />
-          {isExpanded ? (
-            <ChevronDown className="h-4 w-4 mr-1 text-muted-foreground shrink-0" />
-          ) : (
-            <ChevronRight className="h-4 w-4 mr-1 text-muted-foreground shrink-0" />
-          )}
-          <Folder className="h-4 w-4 mr-2 text-muted-foreground shrink-0" />
-          <span className={cn(
-            "truncate text-xs font-normal",
-            isCurrentFolder && "font-bold"
-          )}>{item.name}</span>
-        </div>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div
+                className={cn(
+                  "flex items-center py-1 px-2 text-sm cursor-pointer hover:bg-accent/50 transition-colors duration-200 relative group",
+                  isCurrentFolder && "font-bold"
+                )}
+                style={{ paddingLeft: `${level * 12}px` }}
+                onClick={() => toggleFolder(fullPath)}
+              >
+                <div className="absolute left-0 top-0 bottom-0 w-[1px] bg-border/50 group-hover:bg-border" />
+                {isExpanded ? (
+                  <ChevronDown className="h-4 w-4 mr-1 text-muted-foreground shrink-0" />
+                ) : (
+                  <ChevronRight className="h-4 w-4 mr-1 text-muted-foreground shrink-0" />
+                )}
+                <Folder className="h-4 w-4 mr-2 text-muted-foreground shrink-0" />
+                <span className={cn(
+                  "truncate text-xs font-normal",
+                  isCurrentFolder && "font-bold"
+                )}>{item.name}</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Click to {isExpanded ? 'collapse' : 'expand'} folder</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
         {isExpanded && item.children && (
           <div className="relative">
             <div className="absolute left-[9px] top-0 bottom-0 w-[1px] bg-border/50" />

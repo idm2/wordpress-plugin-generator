@@ -8,6 +8,7 @@ import php from "react-syntax-highlighter/dist/esm/languages/hljs/php"
 import css from "react-syntax-highlighter/dist/esm/languages/hljs/css"
 import { tomorrow } from "react-syntax-highlighter/dist/esm/styles/hljs"
 import type { FileStructure } from "@/types/shared"
+import { RefreshCw } from "lucide-react"
 
 SyntaxHighlighter.registerLanguage("javascript", js)
 SyntaxHighlighter.registerLanguage("php", php)
@@ -17,9 +18,10 @@ interface CodeEditorProps {
   selectedFile: string | null
   fileStructure: FileStructure[]
   onCodeChange?: (newCode: string) => void
+  loading?: boolean
 }
 
-export function CodeEditor({ selectedFile, fileStructure, onCodeChange }: CodeEditorProps) {
+export function CodeEditor({ selectedFile, fileStructure, onCodeChange, loading }: CodeEditorProps) {
   const [code, setCode] = useState<string>("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -67,7 +69,12 @@ export function CodeEditor({ selectedFile, fileStructure, onCodeChange }: CodeEd
 
   return (
     <div className="relative h-full overflow-hidden">
-      {selectedFile ? (
+      {loading ? (
+        <div className="flex flex-col items-center justify-center h-full text-gray-500 space-y-4">
+          <RefreshCw className="h-12 w-12 text-emerald-500 animate-[spin_2s_linear_infinite]" />
+          <p className="text-lg font-medium text-emerald-600">Generating plugin...</p>
+        </div>
+      ) : selectedFile ? (
         <>
           <SyntaxHighlighter
             language={getLanguage(selectedFile)}
@@ -75,6 +82,7 @@ export function CodeEditor({ selectedFile, fileStructure, onCodeChange }: CodeEd
             customStyle={{
               margin: 0,
               padding: "1rem",
+              paddingBottom: "30px",
               height: "100%",
               fontSize: "0.875rem",
               background: "transparent",
@@ -94,7 +102,7 @@ export function CodeEditor({ selectedFile, fileStructure, onCodeChange }: CodeEd
             value={code}
             onChange={handleCodeChange}
             onScroll={handleScroll}
-            className="absolute top-0 left-0 w-full h-full bg-transparent text-transparent caret-black resize-none p-4 font-mono text-sm leading-normal overflow-auto"
+            className="absolute top-0 left-0 w-full h-full bg-transparent text-transparent caret-black resize-none p-4 pb-[30px] font-mono text-sm leading-normal overflow-auto"
             spellCheck={false}
             aria-label={`Code editor for ${selectedFile}`}
           />

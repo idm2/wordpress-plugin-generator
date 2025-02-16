@@ -37,6 +37,15 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
           </AlertDescription>
         </Alert>
       )}
+
+      {selectedModel === "qwen" && (
+        <Alert variant="destructive" className="bg-yellow-50 text-yellow-800 border-yellow-600">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            QWEN is still under development
+          </AlertDescription>
+        </Alert>
+      )}
     </div>
   )
 }

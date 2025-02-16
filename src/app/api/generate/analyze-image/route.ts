@@ -1,9 +1,10 @@
-import OpenAI from "openai"
+import { OpenAI } from "openai"
 import { NextResponse } from "next/server"
 import { config } from "../../../../../config/env"
 
 const openai = new OpenAI({
   apiKey: config.OPENAI_API_KEY || "",
+  dangerouslyAllowBrowser: true
 })
 
 export async function POST(req: Request) {
@@ -24,31 +25,40 @@ export async function POST(req: Request) {
     const buffer = Buffer.from(bytes)
     const base64Image = buffer.toString("base64")
 
-    // Call OpenAI Vision API with improved prompt
+    console.log("Analyzing image with OpenAI Vision API...")
+    console.log("Model:", config.OPENAI_VISION_MODEL)
+    console.log("Using API key starting with:", config.OPENAI_API_KEY.substring(0, 10) + "...")
+
+    // Call OpenAI Vision API with the correct model
     const response = await openai.chat.completions.create({
-      model: config.OPENAI_VISION_MODEL,
+      model: "gpt-4o-2024-05-13",  // Using GPT-4o model for better image analysis
       messages: [
+        {
+          role: "system",
+          content: "You are an expert at analyzing images and extracting text content. When you see text in an image that contains a question or request, focus on understanding and returning that specific request."
+        },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: "Analyze this image in detail. If it contains code, extract and format it. If it contains UI elements or text, describe their location and content. Be specific and detailed.",
+              text: "Look at this image carefully and tell me what the user is asking for or requesting. If you see a specific question or request in the text, return that exact request. Focus on understanding the user's intent.",
             },
             {
               type: "image_url",
               image_url: {
                 url: `data:${file.type};base64,${base64Image}`,
-                detail: "high" // Use high detail mode for better analysis
               },
             },
           ],
         },
       ],
-      max_tokens: 4096,
+      max_tokens: 1000,
+      temperature: 0,
     })
 
-    const description = response.choices[0]?.message?.content || "No description generated"
+    const description = response.choices[0]?.message?.content || "No text found in image"
+    console.log("OpenAI Response:", description)
 
     return NextResponse.json({
       success: true,
@@ -56,11 +66,23 @@ export async function POST(req: Request) {
     })
   } catch (error: any) {
     console.error("Error analyzing image:", error)
+    console.error("Error details:", {
+      message: error.message,
+      status: error.status,
+      response: error.response?.data
+    })
     
-    // Handle specific error cases
-    if (error.message?.includes("model_not_found") || error.message?.includes("invalid_api_key")) {
+    // Enhanced error handling
+    if (error.message?.includes("model_not_found")) {
       return NextResponse.json({
-        error: "There was an issue with the OpenAI configuration. Please check your API key and model settings.",
+        error: "The specified model is not available. Using gpt-4-turbo-preview for image analysis.",
+        success: false,
+      }, { status: 401 })
+    }
+    
+    if (error.message?.includes("invalid_api_key")) {
+      return NextResponse.json({
+        error: "Invalid API key. Please check your OpenAI API key configuration.",
         success: false,
       }, { status: 401 })
     }

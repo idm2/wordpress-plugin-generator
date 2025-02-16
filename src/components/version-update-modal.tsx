@@ -31,7 +31,7 @@ export function VersionUpdateModal({ isOpen, onClose, onSubmit, currentVersion }
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent>
+      <DialogContent className="bg-white">
         <DialogHeader>
           <DialogTitle>Update Plugin Version</DialogTitle>
           <DialogDescription>

@@ -151,7 +151,11 @@ export function PluginDetailsModal({ isOpen, onClose, onSubmit }: PluginDetailsM
             <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button 
+              type="submit" 
+              disabled={isSubmitting}
+              className="bg-black text-white hover:bg-black/90"
+            >
               {isSubmitting ? 'Processing...' : 'Continue'}
             </Button>
           </DialogFooter>

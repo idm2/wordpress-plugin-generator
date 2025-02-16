@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Download, Eye, RefreshCw, Code, Save, FolderOpen } from "lucide-react"
+import { Download, Eye, RefreshCw, Code, Save, FolderOpen, FileText, Loader2, Wand2 } from "lucide-react"
 import { OpenAI } from "openai"
 import { AdminDetailsModal } from "@/components/admin-details-modal"
 import FileExplorer from "@/components/file-explorer"
@@ -17,14 +17,15 @@ import { PreviewModal } from "@/components/preview-modal"
 import { createWordPressInstance, installPlugin, deleteWordPressInstance } from "@/lib/instawp"
 import mammoth from "mammoth"
 import { CodeSnippetModal } from "@/components/code-snippet-modal"
-import { SavedPluginsModal } from "@/components/saved-plugins-modal"
 import { ModelSelector } from "@/components/ModelSelector"
 import { PluginDiscussion } from "@/components/plugin-discussion"
 import { processFile } from "@/lib/file-processor"
-import type { FileReference, FileStructure, Message, ChatMessage, CodeVersion, ProcessedFile } from "@/types/shared"
+import type { FileReference, FileStructure, Message, ChatMessage, CodeVersion, ProcessedFile, CompletePluginState } from "@/types/shared"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { VersionUpdateModal } from "@/components/version-update-modal"
 import { config } from "@/config/env"
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip"
+import { FileDropZone } from '@/components/file-drop-zone'
 
 interface ChangelogEntry {
   id: string
@@ -34,14 +35,6 @@ interface ChangelogEntry {
   aiResponse?: string
   codeChanges?: string
   llmUsed?: string
-}
-
-interface SavedPlugin {
-  id: string
-  name: string
-  code: string
-  description: string
-  date: string
 }
 
 // Initialize OpenAI client
@@ -73,8 +66,7 @@ export default function PluginGenerator() {
   const [isCodeSnippetModalOpen, setIsCodeSnippetModalOpen] = useState(false)
   const [showRevisionModal, setShowRevisionModal] = useState(false)
   const [isRevisionInputActive, setIsRevisionInputActive] = useState(false)
-  const [isSavedPluginsModalOpen, setIsSavedPluginsModalOpen] = useState(false)
-  const [selectedLLM, setSelectedLLM] = useState<string>("openai")
+  const [selectedModel, setSelectedModel] = useState<string>("openai")
   const [messages, setMessages] = useState<Message[]>([])
   const [codeVersions, setCodeVersions] = useState<CodeVersion[]>([])
   const [currentVersionIndex, setCurrentVersionIndex] = useState<number>(-1)
@@ -138,7 +130,7 @@ export default function PluginGenerator() {
       timestamp: new Date().toISOString(),
       codeUpdate: true
     }
-    setMessages(prev => [...prev, versionMessage])
+    setMessages(prev => [versionMessage, ...prev])
   }
 
   const revertToVersion = (versionId: string) => {
@@ -157,7 +149,7 @@ export default function PluginGenerator() {
         timestamp: new Date().toISOString(),
         codeUpdate: true
       }
-      setMessages(prev => [...prev, revertMessage])
+      setMessages(prev => [revertMessage, ...prev])
     }
   }
 
@@ -177,7 +169,7 @@ export default function PluginGenerator() {
         timestamp: new Date().toISOString(),
         codeUpdate: true
       }
-      setMessages(prev => [...prev, revertMessage])
+      setMessages(prev => [revertMessage, ...prev])
       return true
     }
     return false
@@ -185,13 +177,13 @@ export default function PluginGenerator() {
 
   const generateCode = async () => {
     try {
-      if (!pluginDetails) {
-        setShowPluginDetailsModal(true)
+      if (!description && attachedFiles.length === 0) {
+        setError("Please enter a description or attach files.")
         return
       }
 
-      if (!description && attachedFiles.length === 0) {
-        setError("Please enter a description or attach files.")
+      if (!pluginDetails) {
+        setError("Plugin details are required.")
         return
       }
 
@@ -216,23 +208,16 @@ export default function PluginGenerator() {
       const messages = [
         {
           role: "system",
-          content: `You are an expert WordPress plugin developer. Generate only the raw PHP code for a WordPress plugin. Do not include markdown formatting, code fences, or comments. The code should start with <?php and be production-ready, following WordPress coding standards and best practices.
-
-Core Principles:
-- Every generated WordPress plugin or code snippet must be fully functional, error-free, and optimized before output.
-- Reason through multiple implementation possibilities and choose the best one before writing the code.
-- Adhere to WordPress Coding Standards (WPCS) and best practices.
-- Use proper WordPress folder and file structure for plugins.
-- Create modular code, separating core functionality, hooks, templates, and settings into appropriate files.
-- Follow security best practices, including sanitization, validation, escaping, and nonces.
-- Prioritize performance optimization, ensuring no unnecessary queries, loops, or external requests.
-- Ensure compatibility with the latest stable WordPress version.
-- Use unique prefixes for functions and classes to prevent conflicts.
-- Use actions, filters, and WordPress API functions correctly and efficiently.`,
+          content: `You are an expert WordPress plugin developer. Generate a complete, functional WordPress plugin. The response should be ONLY the plugin code, without any markdown formatting or explanation. The code must:
+1. Start with the standard WordPress plugin header comment
+2. Begin with <?php on the first line
+3. Follow WordPress coding standards
+4. Include proper security checks and initialization
+5. Be production-ready and fully functional`,
         },
         {
           role: "user",
-          content: `Generate a WordPress plugin with the following details:
+          content: `Create a WordPress plugin with these details:
 Name: ${pluginDetails.name}
 Plugin URI: ${pluginDetails.uri}
 Description: ${pluginDetails.description}
@@ -244,26 +229,9 @@ Functionality: ${fullRequest}`,
       ]
 
       let generatedCode = ""
+      let tempCode = ""
 
-      if (selectedLLM === "anthropic") {
-        const result = await fetch("/api/generate", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            messages,
-            model: "anthropic",
-          }),
-        })
-
-        if (!result.ok) {
-          throw new Error("Failed to generate code")
-        }
-
-        const data = await result.json()
-        generatedCode = data.content
-      } else if (selectedLLM === "openai") {
+      if (selectedModel === "openai") {
         if (!process.env.NEXT_PUBLIC_OPENAI_API_KEY) {
           throw new Error("OpenAI API key is not configured")
         }
@@ -279,40 +247,76 @@ Functionality: ${fullRequest}`,
             role: msg.role,
             content: msg.content
           })) as { role: "system" | "user" | "assistant"; content: string }[],
+          stream: true,
         })
 
-        if (!completion.choices[0]?.message?.content) {
-          throw new Error("No response from OpenAI")
+        for await (const chunk of completion) {
+          const content = chunk.choices[0]?.delta?.content || ''
+          if (content) {
+            tempCode += content
+            setGeneratedCode(tempCode)
+          }
         }
-
-        generatedCode = completion.choices[0].message.content
-      } else if (selectedLLM === "deepseek" || selectedLLM === "qwen") {
-        const result = await fetch("/api/generate", {
+        generatedCode = tempCode
+      } else if (selectedModel === "deepseek" || selectedModel === "qwen") {
+        const response = await fetch("/api/generate", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
             messages,
-            model: selectedLLM,
+            model: selectedModel,
           }),
         })
 
-        if (!result.ok) {
+        if (!response.ok) {
           throw new Error("Failed to generate code")
         }
 
-        const data = await result.json()
-        generatedCode = data.content
+        const reader = response.body?.getReader()
+        if (!reader) throw new Error("No response stream available")
+
+        const decoder = new TextDecoder()
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          const chunk = decoder.decode(value)
+          const lines = chunk.split('\n').filter(Boolean)
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6))
+                if (data.content) {
+                  tempCode += data.content
+                  setGeneratedCode(tempCode)
+                }
+                if (data.error) {
+                  throw new Error(data.error)
+                }
+              } catch (e) {
+                console.error('Error parsing chunk:', e)
+              }
+            }
+          }
+        }
+        generatedCode = tempCode
       } else {
-        throw new Error(`Unsupported model: ${selectedLLM}`)
+        throw new Error(`Unsupported model: ${selectedModel}`)
       }
 
+      // Clean up the generated code
       generatedCode = generatedCode
-        .replace(/^[\s\S]*?<\?php\s*/m, "<?php\n")
-        .replace(/```(?:php)?\s*|\s*```$/g, "")
+        .replace(/^```(?:php)?\s*|\s*```$/g, "")
+        .replace(/^[\s\S]*?<\?php/, "<?php")
         .replace(/\n<\?php/g, "")
         .trim()
+
+      if (!generatedCode.startsWith("<?php")) {
+        generatedCode = "<?php\n" + generatedCode
+      }
 
       setGeneratedCode(generatedCode)
       createFileStructure(generatedCode)
@@ -331,17 +335,17 @@ Functionality: ${fullRequest}`,
   ): Promise<{ message: string; codeUpdate?: string }> => {
     let response = ""
     const systemMessage: ChatMessage = {
-      role: "system",
+        role: "system",
       content: `You are a WordPress plugin development expert. Your task is to help create or modify WordPress plugins based on user requirements. Current plugin code:\n\n${currentCode}`,
     }
     const userMsg: ChatMessage = {
-      role: "user",
-      content: userMessage,
+        role: "user",
+        content: userMessage,
     }
     const messages: ChatMessage[] = [systemMessage, userMsg]
 
     try {
-      if (selectedLLM === "openai") {
+      if (selectedModel === "openai") {
         const completion = await openai.chat.completions.create({
           model: "gpt-4",
           messages: messages.map(msg => ({
@@ -350,7 +354,7 @@ Functionality: ${fullRequest}`,
           })) as { role: "system" | "user" | "assistant"; content: string }[],
         })
         response = completion.choices[0].message.content || ""
-      } else if (selectedLLM === "deepseek" || selectedLLM === "qwen") {
+      } else if (selectedModel === "deepseek" || selectedModel === "qwen") {
         const result = await fetch("/api/generate", {
           method: "POST",
           headers: {
@@ -358,7 +362,7 @@ Functionality: ${fullRequest}`,
           },
           body: JSON.stringify({
             messages,
-            model: selectedLLM,
+            model: selectedModel,
           }),
         })
 
@@ -369,10 +373,10 @@ Functionality: ${fullRequest}`,
         const data = await result.json()
         response = data.content
       } else {
-        throw new Error(`Unsupported model: ${selectedLLM}`)
+        throw new Error(`Unsupported model: ${selectedModel}`)
       }
 
-      return parseAIResponse(response)
+        return parseAIResponse(response)
     } catch (error) {
       console.error("Error generating response:", error)
       throw error
@@ -427,19 +431,19 @@ Functionality: ${fullRequest}`,
         type: "folder",
         children: isTraditional
           ? [
-              {
-                name: "admin",
-                type: "folder",
-                children: [
+          {
+            name: "admin",
+            type: "folder",
+            children: [
                   {
                     name: `class-${pluginName.toLowerCase()}-admin.php`,
                     type: "file",
                     content: generateAdminClass(pluginName),
                     path: `${pluginName}/admin/class-${pluginName.toLowerCase()}-admin.php`
                   },
-                  {
-                    name: "css",
-                    type: "folder",
+              {
+                name: "css",
+                type: "folder",
                     children: [
                       {
                         name: "index.php",
@@ -448,10 +452,10 @@ Functionality: ${fullRequest}`,
                         path: `${pluginName}/admin/css/index.php`
                       }
                     ]
-                  },
-                  {
-                    name: "js",
-                    type: "folder",
+              },
+              {
+                name: "js",
+                type: "folder",
                     children: [
                       {
                         name: "index.php",
@@ -467,27 +471,27 @@ Functionality: ${fullRequest}`,
                     children: [
                       {
                         name: "index.php",
-                        type: "file",
+                type: "file",
                         content: "<?php // Silence is golden",
                         path: `${pluginName}/admin/partials/index.php`
                       }
                     ]
                   }
                 ]
-              },
+          },
+          {
+            name: "includes",
+            type: "folder",
+            children: [
               {
-                name: "includes",
-                type: "folder",
-                children: [
-                  {
                     name: `class-${pluginName.toLowerCase()}-activator.php`,
-                    type: "file",
+                type: "file",
                     content: generateActivatorClass(pluginName),
                     path: `${pluginName}/includes/class-${pluginName.toLowerCase()}-activator.php`
-                  },
-                  {
+              },
+              {
                     name: `class-${pluginName.toLowerCase()}-deactivator.php`,
-                    type: "file",
+                type: "file",
                     content: generateDeactivatorClass(pluginName),
                     path: `${pluginName}/includes/class-${pluginName.toLowerCase()}-deactivator.php`
                   },
@@ -534,20 +538,20 @@ Functionality: ${fullRequest}`,
                     path: `${pluginName}/languages/${pluginName.toLowerCase()}.pot`
                   }
                 ]
-              },
-              {
-                name: "public",
-                type: "folder",
-                children: [
+          },
+          {
+            name: "public",
+            type: "folder",
+            children: [
                   {
                     name: `class-${pluginName.toLowerCase()}-public.php`,
                     type: "file",
                     content: generatePublicClass(pluginName),
                     path: `${pluginName}/public/class-${pluginName.toLowerCase()}-public.php`
                   },
-                  {
-                    name: "css",
-                    type: "folder",
+              {
+                name: "css",
+                type: "folder",
                     children: [
                       {
                         name: "index.php",
@@ -556,10 +560,10 @@ Functionality: ${fullRequest}`,
                         path: `${pluginName}/public/css/index.php`
                       }
                     ]
-                  },
-                  {
-                    name: "js",
-                    type: "folder",
+              },
+              {
+                name: "js",
+                type: "folder",
                     children: [
                       {
                         name: "index.php",
@@ -575,7 +579,7 @@ Functionality: ${fullRequest}`,
                     children: [
                       {
                         name: "index.php",
-                        type: "file",
+                type: "file",
                         content: "<?php // Silence is golden",
                         path: `${pluginName}/public/partials/index.php`
                       }
@@ -591,7 +595,7 @@ Functionality: ${fullRequest}`,
               },
               {
                 name: "LICENSE.txt",
-                type: "file",
+            type: "file",
                 content: generateLicenseContent(),
                 path: `${pluginName}/LICENSE.txt`
               },
@@ -1039,10 +1043,12 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
     const timestamp = new Date().toISOString()
     const messageId = Date.now().toString()
 
+    let messageContent = content
+    
     // Add user message immediately
     const userMessage: Message = {
       id: messageId,
-      content,
+      content: messageContent,
       type: "user",
       timestamp,
     }
@@ -1050,38 +1056,163 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
     if (files && files.length > 0) {
       const processedFiles: FileReference[] = []
       for (const file of files) {
-        const processed = await processFile(file)
-        if (processed.metadata) {
-          processedFiles.push({
-            name: processed.metadata.name,
-            type: processed.metadata.type,
-            content: processed.metadata.content || "",
-            summary: processed.metadata.summary || "",
-            isReference: true
-          })
+        try {
+          const processed = await processFile(file)
+          if (processed.metadata) {
+            // Add the file content to the message content
+            if (processed.metadata.content) {
+              messageContent += "\n\nContent from " + file.name + ":\n" + processed.metadata.content
+            }
+            processedFiles.push({
+              name: processed.metadata.name,
+              type: processed.metadata.type,
+              content: processed.metadata.content || "",
+              summary: processed.metadata.summary || "",
+              isReference: true
+            })
+          }
+        } catch (error) {
+          console.error(`Error processing file ${file.name}:`, error)
         }
       }
       userMessage.files = processedFiles
+      userMessage.content = messageContent // Update the message content with file contents
     }
 
     setMessages(prev => [userMessage, ...prev])
     
     try {
-      const response = await generateAIResponse(content, generatedCode)
-      
-      // Add AI response
-      const aiMessage: Message = {
-        id: Date.now().toString(),
-        content: response.message,
+      // Create a temporary message for streaming
+      const tempMessageId = Date.now().toString()
+      const tempMessage: Message = {
+        id: tempMessageId,
+        content: "",
         type: "assistant",
         timestamp: new Date().toISOString(),
-        codeUpdate: !!response.codeUpdate
       }
+      setMessages(prev => [tempMessage, ...prev])
+
+      const systemMessage: ChatMessage = {
+        role: "system",
+        content: `You are a WordPress plugin development expert. Your task is to help create or modify WordPress plugins based on user requirements. Current plugin code:\n\n${generatedCode}`,
+      }
+      const userMsg: ChatMessage = {
+        role: "user",
+        content: messageContent,
+      }
+      const messages: ChatMessage[] = [systemMessage, userMsg]
+
+      let tempResponse = ""
+      let codeBlock = ""
+      let isInCodeBlock = false
+
+      if (selectedModel === "openai") {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4",
+          messages: messages.map(msg => ({
+            role: msg.role,
+            content: msg.content
+          })) as { role: "system" | "user" | "assistant"; content: string }[],
+          stream: true,
+        })
+
+        for await (const chunk of completion) {
+          const content = chunk.choices[0]?.delta?.content || ''
+          if (content) {
+            tempResponse += content
+            
+            // Check for code blocks
+            if (content.includes('```')) {
+              isInCodeBlock = !isInCodeBlock
+            } else if (isInCodeBlock) {
+              codeBlock += content
+            }
+            
+            // Update the temporary message
+            setMessages(prev => prev.map(msg => 
+              msg.id === tempMessageId 
+                ? { ...msg, content: tempResponse }
+                : msg
+            ))
+          }
+        }
+      } else if (selectedModel === "deepseek" || selectedModel === "qwen") {
+        const response = await fetch("/api/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messages,
+            model: selectedModel,
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error("Failed to generate response")
+        }
+
+        const reader = response.body?.getReader()
+        if (!reader) throw new Error("No response stream available")
+
+        const decoder = new TextDecoder()
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          const chunk = decoder.decode(value)
+          const lines = chunk.split('\n').filter(Boolean)
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6))
+                if (data.content) {
+                  tempResponse += data.content
+                  
+                  // Check for code blocks
+                  if (data.content.includes('```')) {
+                    isInCodeBlock = !isInCodeBlock
+                  } else if (isInCodeBlock) {
+                    codeBlock += data.content
+                  }
+                  
+                  // Update the temporary message
+                  setMessages(prev => prev.map(msg => 
+                    msg.id === tempMessageId 
+                      ? { ...msg, content: tempResponse }
+                      : msg
+                  ))
+                }
+                if (data.error) {
+                  throw new Error(data.error)
+                }
+              } catch (e) {
+                console.error('Error parsing chunk:', e)
+              }
+            }
+          }
+        }
+      } else {
+        throw new Error(`Unsupported model: ${selectedModel}`)
+      }
+
+      // Parse the final response
+      const parsedResponse = parseAIResponse(tempResponse)
       
-      setMessages(prev => [aiMessage, ...prev])
+      // Update the temporary message with the final content
+      setMessages(prev => prev.map(msg => 
+        msg.id === tempMessageId 
+          ? { 
+              ...msg, 
+              content: parsedResponse.message,
+              codeUpdate: !!parsedResponse.codeUpdate
+            }
+          : msg
+      ))
       
-      if (response.codeUpdate) {
-        handleCodeUpdate(response.codeUpdate)
+      if (parsedResponse.codeUpdate) {
+        handleCodeUpdate(parsedResponse.codeUpdate)
       }
     } catch (error) {
       console.error("Error generating AI response:", error)
@@ -1101,28 +1232,63 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
       return
     }
 
-    const newPlugin: SavedPlugin = {
+    const completeState: CompletePluginState = {
       id: Date.now().toString(),
       name: pluginName,
       code: generatedCode,
       description: description,
       date: new Date().toISOString(),
+      pluginDetails: pluginDetails,
+      messages: messages,
+      codeVersions: codeVersions,
+      currentVersionIndex: currentVersionIndex,
+      fileStructure: fileStructure,
+      changelog: changelog
     }
 
-    const savedPlugins = JSON.parse(localStorage.getItem("savedPlugins") || "[]")
-    savedPlugins.push(newPlugin)
-    localStorage.setItem("savedPlugins", JSON.stringify(savedPlugins))
+    // Create a Blob from the state
+    const stateBlob = new Blob([JSON.stringify(completeState, null, 2)], { type: 'application/json' })
+    
+    // Create download link
+    const url = window.URL.createObjectURL(stateBlob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${pluginName}-state.json`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
 
     setError(null)
-    alert("Plugin saved successfully!")
   }
 
-  const handleLoadPlugin = (plugin: SavedPlugin) => {
-    setPluginName(plugin.name)
-    setGeneratedCode(plugin.code)
-    setDescription(plugin.description)
-    createFileStructure(plugin.code)
-    setError(null)
+  const handleLoadPlugin = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      const text = await file.text()
+      const state: CompletePluginState = JSON.parse(text)
+
+      // Restore all state
+      setPluginName(state.name)
+      setGeneratedCode(state.code)
+      setDescription(state.description)
+      setPluginDetails(state.pluginDetails)
+      setMessages(state.messages)
+      setCodeVersions(state.codeVersions)
+      setCurrentVersionIndex(state.currentVersionIndex)
+      setFileStructure(state.fileStructure)
+      setChangelog(state.changelog)
+      
+      // Set the selected file to the main plugin file
+      setSelectedFile(`${state.name}/${state.name}.php`)
+      
+      setError(null)
+    } catch (err) {
+      console.error('Error loading plugin state:', err)
+      setError('Failed to load plugin state file')
+    }
   }
 
   const updateFileStructure = (
@@ -1164,13 +1330,33 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
     setError(null)
 
     try {
-      let fullRevisionRequest = description
+      let fullRevisionRequest = `You are a WordPress plugin expert. Your task is to MODIFY the existing plugin code by ADDING the requested functionality while PRESERVING ALL existing functionality.
+
+IMPORTANT:
+1. DO NOT remove or replace existing features unless explicitly requested
+2. Keep all existing functions and hooks
+3. Add new functionality alongside existing code
+4. Maintain the current plugin structure
+5. Return the COMPLETE updated plugin code
+
+Current plugin code:
+${generatedCode}
+
+Requested changes:
+${description}
+
+Your response must include:
+1. A brief explanation of what you're adding/changing
+2. How the new changes integrate with existing functionality
+3. The complete updated plugin code that includes both existing and new features`
 
       if (files && files.length > 0) {
         for (const file of files) {
           try {
             const text = await processFile(file)
-            fullRevisionRequest += "\n" + text
+            if (text.metadata?.content) {
+              fullRevisionRequest += "\n\nAdditional context from attached file:\n" + text.metadata.content
+            }
           } catch (error) {
             console.error(`Error processing file ${file.name}:`, error)
             setError(`Error processing file ${file.name}. Please try again.`)
@@ -1180,21 +1366,49 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
       }
 
       const aiResponse = await generateAIResponse(fullRevisionRequest, generatedCode)
+      let explanation = ""
+      let updatedCode = ""
 
-      if (aiResponse.codeUpdate) {
-        setGeneratedCode(aiResponse.codeUpdate)
-        createFileStructure(aiResponse.codeUpdate)
+      // Parse the AI response to separate explanation from code
+      if (aiResponse.message) {
+        const parts = aiResponse.message.split("```")
+        if (parts.length >= 3) {
+          explanation = parts[0].trim()
+          updatedCode = parts[1].replace(/^php\n/, '').trim()
+        } else {
+          explanation = "Changes applied as requested."
+          updatedCode = aiResponse.codeUpdate || aiResponse.message
+        }
+      }
+
+      if (updatedCode) {
+        setGeneratedCode(updatedCode)
+        createFileStructure(updatedCode)
+        
+        // Add a new version for this revision
+        addCodeVersion(updatedCode, `${description}\n\nChanges made:\n${explanation}`)
       }
 
       const newEntry: ChangelogEntry = {
         id: Date.now().toString(),
         date: new Date().toLocaleDateString(),
-        description: fullRevisionRequest,
+        description: description,
         files: files?.map((f) => f.name),
-        codeChanges: aiResponse.codeUpdate,
-        llmUsed: selectedLLM,
+        codeChanges: updatedCode,
+        aiResponse: explanation,
+        llmUsed: selectedModel,
       }
       setChangelog((prev) => [newEntry, ...prev])
+
+      // Add a message to show the explanation
+      const message: Message = {
+        id: Date.now().toString(),
+        content: `Changes applied:\n${explanation}`,
+        type: "assistant",
+        timestamp: new Date().toISOString(),
+        codeUpdate: true
+      }
+      setMessages(prev => [...prev, message])
 
       setRevisionDescription("")
       setRevisionFiles([])
@@ -1291,225 +1505,210 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white">
-      {/* Left Column - File Explorer */}
-      <div className="w-[250px] min-w-[250px] border-r flex flex-col overflow-hidden">
-        <div className="p-4 border-b">
-          <h2 className="font-semibold">Files</h2>
+    <div className="flex flex-col h-screen">
+      <h1 className="text-2xl font-bold p-4 border-b flex-shrink-0">WordPress Plugin Generator</h1>
+      <div className="flex flex-1 min-h-0">
+        {/* File Explorer Column */}
+        <div className="w-[250px] border-r flex flex-col min-h-0">
+          <FileExplorer
+            files={fileStructure}
+            selectedFile={selectedFile}
+            onSelectFile={setSelectedFile}
+          />
         </div>
-        <div className="flex-1 overflow-y-auto p-4">
-          <FileExplorer files={fileStructure} selectedFile={selectedFile} onSelectFile={setSelectedFile} />
-        </div>
-      </div>
 
-      {/* Middle Column - Main Content */}
-      <div className="flex-1 min-w-0 flex flex-col overflow-hidden border-r">
-        <div className="flex-none p-4 border-b">
-          <h1 className="text-2xl font-bold mb-6">WordPress Plugin Generator</h1>
-          <div className="space-y-4">
-            <ModelSelector selectedModel={selectedLLM} onModelChange={setSelectedLLM} />
-            <div className="space-y-2">
-              <RichTextarea
-                placeholder="Describe the functionality you want (e.g., a plugin that adds a custom post type for reviews)"
-                value={description}
-                onChange={setDescription}
-                onFilesSelected={setAttachedFiles}
-                className="min-h-[100px] w-full"
-              />
-              {codeVersions.length > 0 && (
-                <div className="flex items-center gap-2 mb-4 w-full">
-                  <span className="text-sm font-medium">Version Control:</span>
-                  <Select
-                    value={currentVersionIndex.toString()}
-                    onValueChange={(value) => {
-                      const version = codeVersions[parseInt(value)]
-                      if (version) {
-                        revertToVersion(version.id)
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="w-[450px] bg-white">
-                      <SelectValue placeholder="Select version" />
-                    </SelectTrigger>
-                    <SelectContent className="w-[450px] bg-white">
-                      {codeVersions.map((version, index) => (
-                        <SelectItem key={version.id} value={index.toString()}>
-                          <div className="flex justify-between items-center w-full">
-                            <span>{version.version}</span>
-                            <span className="text-gray-500 text-sm">
-                              {new Date(version.timestamp).toLocaleString()}
-                            </span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              {attachedFiles.length > 0 && (
-                <div className="text-sm text-gray-500">
-                  Attached files: {attachedFiles.map((f) => f.name).join(", ")}
-                </div>
-              )}
+        {/* Main Content Column */}
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="p-4 border-b flex-shrink-0">
+            <div className="mb-4">
+              <ModelSelector selectedModel={selectedModel} onModelChange={setSelectedModel} />
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <Button
-                onClick={generateCode}
-                disabled={loading || isCreatingPreview}
-                className={`${hasFilledDetails ? "bg-emerald-600 hover:bg-emerald-700" : ""}`}
-              >
-                {loading ? (
-                  <>
-                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                    Generating...
-                  </>
-                ) : hasFilledDetails ? (
-                  "Generate Plugin"
-                ) : (
-                  "Start"
-                )}
-              </Button>
-              <Button variant="outline" onClick={() => setIsSavedPluginsModalOpen(true)} disabled={loading}>
-                <FolderOpen className="mr-2 h-4 w-4" />
-                Load
-              </Button>
-              {(hasFilledDetails || generatedCode) && (
-                <>
-                  <Button variant="outline" onClick={downloadPlugin} disabled={loading || isCreatingPreview}>
-                    <Download className="mr-2 h-4 w-4" />
-                    Download
-                  </Button>
-                  <Button variant="outline" onClick={() => setIsCodeSnippetModalOpen(true)} disabled={loading}>
-                    <Code className="mr-2 h-4 w-4" />
-                    Snippet
-                  </Button>
-                  <Button variant="outline" onClick={handlePreview} disabled={loading || isCreatingPreview}>
-                    <Eye className="mr-2 h-4 w-4" />
-                    Preview
-                  </Button>
-                  <Button variant="outline" onClick={handleSavePlugin} disabled={loading}>
-                    <Save className="mr-2 h-4 w-4" />
-                    Save
-                  </Button>
-                </>
-              )}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={() => {
+                        if (!hasFilledDetails) {
+                          setShowPluginDetailsModal(true)
+                        } else {
+                          generateCode()
+                        }
+                      }}
+                      disabled={loading || isCreatingPreview}
+                      className={hasFilledDetails ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "bg-black hover:bg-gray-800 text-white"}
+                    >
+                      {loading ? (
+                        <>
+                          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                          Generating...
+                        </>
+                      ) : hasFilledDetails ? (
+                        "Generate Plugin"
+                      ) : (
+                        "Start"
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Generate a new WordPress plugin based on your description</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleLoadPlugin}
+                className="hidden"
+                id="load-plugin-input"
+              />
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => document.getElementById('load-plugin-input')?.click()}
+                      disabled={loading}
+                    >
+                      <FolderOpen className="mr-2 h-4 w-4" />
+                      Load
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Load a previously saved plugin state</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              <div className="flex gap-2">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button onClick={downloadPlugin} variant="outline" disabled={!generatedCode}>
+                        <Download className="h-4 w-4 mr-2" />
+                        Download
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Download your plugin as an installable WordPress Plugin ZIP file</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button onClick={() => setIsCodeSnippetModalOpen(true)} variant="outline" disabled={!generatedCode}>
+                        <Code className="h-4 w-4 mr-2" />
+                        Snippet
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>View a code snippet version of your plugin</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button onClick={handleSavePlugin} variant="outline" disabled={!generatedCode}>
+                        <Save className="h-4 w-4 mr-2" />
+                        Save
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Save your plugin state to a file</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
             </div>
+            <div className="mt-4">
+              <RichTextarea
+                value={description}
+                onChange={setDescription}
+                onFilesSelected={(files: ProcessedFile[]) => setAttachedFiles(files)}
+                placeholder="Describe your WordPress plugin functionality..."
+                className="min-h-[100px]"
+              />
+            </div>
+            {codeVersions.length > 0 && (
+              <div className="mt-4 flex items-center gap-2">
+                <span className="text-sm font-medium">Version Control:</span>
+                <Select
+                  value={currentVersionIndex.toString()}
+                  onValueChange={(value) => {
+                    const version = codeVersions[parseInt(value)]
+                    if (version) {
+                      revertToVersion(version.id)
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-[400px]">
+                    <SelectValue placeholder="Select version" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {codeVersions.map((version, index) => (
+                      <SelectItem key={version.id} value={index.toString()}>
+                        {version.version} ({new Date(version.timestamp).toLocaleString()})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 min-h-0">
+            <CodeEditor
+              selectedFile={selectedFile}
+              fileStructure={fileStructure}
+              loading={loading}
+              onCodeChange={(newCode) => {
+                if (selectedFile === `${pluginName}/${pluginName}.php`) {
+                  setGeneratedCode(newCode)
+                }
+                const updatedStructure = updateFileStructure(fileStructure, selectedFile, newCode)
+                setFileStructure(updatedStructure)
+              }}
+            />
           </div>
         </div>
 
-        <div className="flex-1 p-4 overflow-auto">
-          <Card className="h-full flex flex-col overflow-hidden">
-            <Tabs defaultValue="code" className="flex-1 flex flex-col overflow-hidden">
-              <TabsList className="flex-none">
-                <TabsTrigger value="code">Code</TabsTrigger>
-                <TabsTrigger value="preview">Preview</TabsTrigger>
-              </TabsList>
-              <TabsContent value="code" className="flex-1 overflow-hidden">
-                <div className="h-full">
-                  <CodeEditor
-                    selectedFile={selectedFile}
-                    fileStructure={fileStructure}
-                    onCodeChange={(newCode) => {
-                      if (selectedFile === `${pluginName}/${pluginName}.php`) {
-                        setGeneratedCode(newCode)
-                      }
-                      const updatedStructure = updateFileStructure(fileStructure, selectedFile, newCode)
-                      setFileStructure(updatedStructure)
-                    }}
-                  />
-                </div>
-              </TabsContent>
-              <TabsContent value="preview" className="flex-1 overflow-hidden">
-                <div className="h-full">
-                  {previewUrl ? (
-                    <iframe src={previewUrl} className="w-full h-full" title="WordPress Preview" />
-                  ) : (
-                    <div className="flex items-center justify-center h-full text-gray-500">
-                      Generate and preview a plugin to see it here
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-            </Tabs>
-          </Card>
-        </div>
-      </div>
-
-      {/* Right Column - Plugin Discussion */}
-      <div className="w-[calc(50%-125px)] min-w-[400px] flex flex-col overflow-hidden">
-        <PluginDiscussion
-          messages={messages}
-          onSendMessage={handleSendMessage}
-          className="h-full"
-          selectedModel={selectedLLM}
-          revertBySteps={revertBySteps}
-          revertToVersion={revertToVersion}
-          codeVersions={codeVersions}
-          onCodeUpdate={handleCodeUpdate}
-        />
-        <div className="flex-1 overflow-auto p-4">
-          <Changelog entries={changelog} />
+        {/* Right Column - Plugin Discussion */}
+        <div className="w-[35%] border-l flex flex-col min-h-0">
+          <PluginDiscussion
+            messages={messages}
+            onSendMessage={handleSendMessage}
+            className="h-full"
+            selectedModel={selectedModel}
+            revertBySteps={revertBySteps}
+            revertToVersion={revertToVersion}
+            codeVersions={codeVersions}
+            onCodeUpdate={handleCodeUpdate}
+          />
         </div>
       </div>
 
       {/* Modals */}
-      <AdminDetailsModal isOpen={showAdminModal} onClose={() => setShowAdminModal(false)} details={null} />
       <PluginDetailsModal
         isOpen={showPluginDetailsModal}
         onClose={() => setShowPluginDetailsModal(false)}
-        onSubmit={async (details) => {
+        onSubmit={(details) => {
           setPluginDetails(details)
           setPluginName(details.name)
           setHasFilledDetails(true)
           setShowPluginDetailsModal(false)
-          generateCode()
         }}
       />
-      <PreviewModal isOpen={isPreviewModalOpen} onClose={handleClosePreview} previewUrl={previewUrl} />
+
       <CodeSnippetModal
         isOpen={isCodeSnippetModalOpen}
         onClose={() => setIsCodeSnippetModalOpen(false)}
         code={generatedCode}
       />
-      <RevisionModal
-        isOpen={showRevisionModal}
-        onClose={() => setShowRevisionModal(false)}
-        onSubmit={handleRevisionSubmit}
-        pluginName={pluginName}
-      />
-      <SavedPluginsModal
-        isOpen={isSavedPluginsModalOpen}
-        onClose={() => setIsSavedPluginsModalOpen(false)}
-        onLoad={handleLoadPlugin}
-      />
-      <VersionUpdateModal
-        isOpen={showVersionUpdateModal}
-        onClose={() => {
-          setShowVersionUpdateModal(false)
-          setPendingCodeUpdate(null)
-        }}
-        onSubmit={handleVersionUpdateSubmit}
-        currentVersion={pluginDetails?.version || '1.0.0'}
-      />
-
-      {/* Loading Overlay */}
-      {isCreatingPreview && (
-        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full mx-4">
-            <RefreshCw className="h-8 w-8 animate-spin text-gray-600 mx-auto mb-4" />
-            <p className="text-lg font-semibold text-center">Creating preview site...</p>
-            <p className="text-sm text-gray-500 mt-2 text-center">This may take up to a minute. Please wait.</p>
-          </div>
-        </div>
-      )}
-
-      {/* Error Toast */}
-      {error && (
-        <div className="fixed bottom-4 right-4 bg-red-50 border border-red-200 text-red-600 px-6 py-4 rounded-lg shadow-lg">
-          <p className="font-semibold">Error</p>
-          <p className="text-sm mt-1">{error}</p>
-        </div>
-      )}
     </div>
   )
 }
