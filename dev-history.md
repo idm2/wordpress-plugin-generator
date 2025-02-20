@@ -328,4 +328,73 @@ private static function create_tables() {
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
     dbDelta($sql);
 }
-``` 
+```
+
+## Chat Message Type Fixes
+- Fixed type issues in handleSendMessage function
+- Added proper type assertions for message roles
+- Imported generateResponse from ollama lib
+- Ensured ChatMessage types are properly enforced
+- Removed deprecated deepseek/qwen model handling
+- Added type annotation for chunk parameter in ollama response handler
+
+### Files Modified
+1. src/app/page.tsx
+   - Added imports for generateResponse and ChatMessage type
+   - Fixed type assertions for message roles using 'as const'
+   - Added type annotation for chunk parameter
+   - Removed deprecated model handling code
+   - Streamlined message state updates
+
+### Changes Made
+1. Type Fixes:
+   - Added proper type assertions for "system", "user", and "assistant" roles
+   - Fixed ChatMessage type compatibility in conversationHistory
+   - Added type annotation for stream chunk handler
+
+2. Code Cleanup:
+   - Removed deprecated model handling for deepseek and qwen
+   - Streamlined message state updates
+   - Improved error handling consistency
+
+### Impact
+- Resolved TypeScript errors related to ChatMessage types
+- Improved type safety for message role handling
+- Enhanced code maintainability with proper type definitions
+- Removed unused code paths for deprecated models 
+
+## UI Layout Improvements
+
+### Changes Made
+1. Added horizontal padding to main app container:
+   - Added 25px padding to left and right sides
+   - Improved overall spacing and readability
+
+2. Input Box Alignment:
+   - Ensured consistent width for text inputs
+   - Added proper spacing between elements
+   - Improved vertical alignment of input boxes
+
+3. Component Updates:
+   - Updated RichTextarea component styling
+   - Enhanced responsive layout
+   - Maintained file attachment functionality
+
+### Files Modified
+1. src/app/page.tsx:
+   - Added px-6 padding to main container
+   - Adjusted column layout spacing
+
+2. src/components/plugin-discussion.tsx:
+   - Added w-full class to ensure full width inputs
+   - Maintained existing functionality
+
+3. src/components/rich-textarea.tsx:
+   - Restored original implementation with improved styling
+   - Enhanced input box layout and spacing
+
+### Impact
+- Improved visual consistency
+- Better horizontal spacing
+- Enhanced user experience with aligned inputs
+- Maintained all existing functionality 

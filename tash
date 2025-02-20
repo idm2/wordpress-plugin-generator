@@ -1,0 +1,5 @@
+[33mf76b22a[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m fix: add uuid dependency for Vercel deployment
+[33m2ccf59a[m fix: QWEN API integration and accessibility improvements - Disabled streaming, fixed JSON parsing, added warning message
+[33mc3bfe48[m feat: Implement streaming for Qwen API to avoid Vercel timeouts
+[33m7f6e47b[m feat: Switch to qwen-turbo model for faster response times
+[33me98c7ac[m feat: Increase Qwen API timeout to 90s for Vercel platform

@@ -26,6 +26,8 @@ import { VersionUpdateModal } from "@/components/version-update-modal"
 import { config } from "@/config/env"
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip"
 import { FileDropZone } from '@/components/file-drop-zone'
+import { v4 as uuidv4 } from 'uuid'
+import { generateResponse } from "@/lib/ollama"
 
 interface ChangelogEntry {
   id: string
@@ -72,6 +74,7 @@ export default function PluginGenerator() {
   const [currentVersionIndex, setCurrentVersionIndex] = useState<number>(-1)
   const [showVersionUpdateModal, setShowVersionUpdateModal] = useState(false)
   const [pendingCodeUpdate, setPendingCodeUpdate] = useState<string | null>(null)
+  const tempMessageIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -1041,11 +1044,12 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
     if (!content.trim() && (!files || files.length === 0)) return
 
     const timestamp = new Date().toISOString()
-    const messageId = Date.now().toString()
+    const messageId = uuidv4()
+    const tempMessageId = uuidv4()
+    tempMessageIdRef.current = tempMessageId
 
     let messageContent = content
     
-    // Add user message immediately
     const userMessage: Message = {
       id: messageId,
       content: messageContent,
@@ -1059,7 +1063,6 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
         try {
           const processed = await processFile(file)
           if (processed.metadata) {
-            // Add the file content to the message content
             if (processed.metadata.content) {
               messageContent += "\n\nContent from " + file.name + ":\n" + processed.metadata.content
             }
@@ -1076,43 +1079,57 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
         }
       }
       userMessage.files = processedFiles
-      userMessage.content = messageContent // Update the message content with file contents
+      userMessage.content = messageContent
     }
 
-    setMessages(prev => [userMessage, ...prev])
+    const tempMessage: Message = {
+      id: tempMessageId,
+      content: "",
+      type: "assistant",
+      timestamp: new Date().toISOString(),
+    }
+    
+    setMessages(prev => {
+      const uniqueMessages = Array.from(new Map(prev.map(msg => [msg.id, msg])).values())
+      return [tempMessage, userMessage, ...uniqueMessages]
+    })
     
     try {
-      // Create a temporary message for streaming
-      const tempMessageId = Date.now().toString()
-      const tempMessage: Message = {
-        id: tempMessageId,
-        content: "",
-        type: "assistant",
-        timestamp: new Date().toISOString(),
-      }
-      setMessages(prev => [tempMessage, ...prev])
+      // Get the last 10 messages for context
+      const recentMessages = messages.slice(0, 10).reverse()
+      
+      const conversationHistory: ChatMessage[] = [
+        {
+          role: "system" as const,
+          content: `You are a WordPress plugin development expert. Your task is to help create or modify WordPress plugins based on user requirements. 
+Remember previous interactions within this session.
 
-      const systemMessage: ChatMessage = {
-        role: "system",
-        content: `You are a WordPress plugin development expert. Your task is to help create or modify WordPress plugins based on user requirements. Current plugin code:\n\n${generatedCode}`,
-      }
-      const userMsg: ChatMessage = {
-        role: "user",
-        content: messageContent,
-      }
-      const messages: ChatMessage[] = [systemMessage, userMsg]
+Current plugin code:
+${generatedCode}
+
+Current plugin version: ${pluginDetails?.version || '1.0.0'}
+Plugin name: ${pluginDetails?.name || pluginName}`,
+        },
+        ...recentMessages.map(msg => ({
+          role: msg.type === "user" ? ("user" as const) : ("assistant" as const),
+          content: msg.content
+        })),
+        {
+          role: "user" as const,
+          content: messageContent,
+        }
+      ]
 
       let tempResponse = ""
       let codeBlock = ""
       let isInCodeBlock = false
+      let lastUpdateTime = Date.now()
+      const updateInterval = 200
 
       if (selectedModel === "openai") {
         const completion = await openai.chat.completions.create({
           model: "gpt-4",
-          messages: messages.map(msg => ({
-            role: msg.role,
-            content: msg.content
-          })) as { role: "system" | "user" | "assistant"; content: string }[],
+          messages: conversationHistory,
           stream: true,
         })
 
@@ -1121,108 +1138,96 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
           if (content) {
             tempResponse += content
             
-            // Check for code blocks
             if (content.includes('```')) {
               isInCodeBlock = !isInCodeBlock
             } else if (isInCodeBlock) {
               codeBlock += content
             }
             
-            // Update the temporary message
-            setMessages(prev => prev.map(msg => 
-              msg.id === tempMessageId 
-                ? { ...msg, content: tempResponse }
-                : msg
-            ))
-          }
-        }
-      } else if (selectedModel === "deepseek" || selectedModel === "qwen") {
-        const response = await fetch("/api/generate", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            messages,
-            model: selectedModel,
-          }),
-        })
-
-        if (!response.ok) {
-          throw new Error("Failed to generate response")
-        }
-
-        const reader = response.body?.getReader()
-        if (!reader) throw new Error("No response stream available")
-
-        const decoder = new TextDecoder()
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          const chunk = decoder.decode(value)
-          const lines = chunk.split('\n').filter(Boolean)
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6))
-                if (data.content) {
-                  tempResponse += data.content
-                  
-                  // Check for code blocks
-                  if (data.content.includes('```')) {
-                    isInCodeBlock = !isInCodeBlock
-                  } else if (isInCodeBlock) {
-                    codeBlock += data.content
-                  }
-                  
-                  // Update the temporary message
-                  setMessages(prev => prev.map(msg => 
-                    msg.id === tempMessageId 
-                      ? { ...msg, content: tempResponse }
-                      : msg
-                  ))
-                }
-                if (data.error) {
-                  throw new Error(data.error)
-                }
-              } catch (e) {
-                console.error('Error parsing chunk:', e)
-              }
+            const now = Date.now()
+            if (now - lastUpdateTime >= updateInterval && tempMessageIdRef.current === tempMessageId) {
+              setMessages(prev => {
+                const uniqueMessages = Array.from(new Map(prev.map(msg => [msg.id, msg])).values())
+                return uniqueMessages.map(msg => 
+                  msg.id === tempMessageId 
+                    ? { ...msg, content: tempResponse }
+                    : msg
+                )
+              })
+              lastUpdateTime = now
             }
           }
         }
+      } else if (selectedModel === "ollama") {
+        await generateResponse(
+          selectedModel,
+          conversationHistory,
+          (chunk: string) => {
+            tempResponse += chunk
+            
+            if (chunk.includes('```')) {
+              isInCodeBlock = !isInCodeBlock
+            } else if (isInCodeBlock) {
+              codeBlock += chunk
+            }
+            
+            const now = Date.now()
+            if (now - lastUpdateTime >= updateInterval && tempMessageIdRef.current === tempMessageId) {
+              setMessages(prev => {
+                const uniqueMessages = Array.from(new Map(prev.map(msg => [msg.id, msg])).values())
+                return uniqueMessages.map(msg => 
+                  msg.id === tempMessageId 
+                    ? { ...msg, content: tempResponse }
+                  : msg
+                )
+              })
+              lastUpdateTime = now
+            }
+          }
+        )
       } else {
         throw new Error(`Unsupported model: ${selectedModel}`)
       }
 
-      // Parse the final response
-      const parsedResponse = parseAIResponse(tempResponse)
-      
-      // Update the temporary message with the final content
-      setMessages(prev => prev.map(msg => 
-        msg.id === tempMessageId 
-          ? { 
-              ...msg, 
-              content: parsedResponse.message,
-              codeUpdate: !!parsedResponse.codeUpdate
-            }
-          : msg
-      ))
-      
-      if (parsedResponse.codeUpdate) {
-        handleCodeUpdate(parsedResponse.codeUpdate)
+      if (tempMessageIdRef.current === tempMessageId) {
+        const parsedResponse = parseAIResponse(tempResponse)
+        
+        setMessages(prev => {
+          const uniqueMessages = Array.from(new Map(prev.map(msg => [msg.id, msg])).values())
+          return uniqueMessages.map(msg => 
+            msg.id === tempMessageId 
+              ? { 
+                  ...msg, 
+                  content: parsedResponse.message,
+                  codeUpdate: !!parsedResponse.codeUpdate
+                }
+              : msg
+          )
+        })
+        
+        if (parsedResponse.codeUpdate) {
+          handleCodeUpdate(parsedResponse.codeUpdate)
+        }
       }
     } catch (error) {
       console.error("Error generating AI response:", error)
-      const errorMessage: Message = {
-        id: Date.now().toString(),
-        content: error instanceof Error ? error.message : "An error occurred",
-        type: "assistant",
-        timestamp: new Date().toISOString()
+      if (tempMessageIdRef.current === tempMessageId) {
+        setMessages(prev => {
+          const uniqueMessages = Array.from(new Map(prev.map(msg => [msg.id, msg])).values())
+          return uniqueMessages.map(msg => 
+            msg.id === tempMessageId 
+              ? {
+                  ...msg,
+                  content: error instanceof Error ? error.message : "An error occurred",
+                }
+              : msg
+          )
+        })
       }
-      setMessages(prev => [errorMessage, ...prev])
+    } finally {
+      if (tempMessageIdRef.current === tempMessageId) {
+        tempMessageIdRef.current = null
+      }
     }
   }
 
@@ -1284,7 +1289,7 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
       // Set the selected file to the main plugin file
       setSelectedFile(`${state.name}/${state.name}.php`)
       
-      setError(null)
+    setError(null)
     } catch (err) {
       console.error('Error loading plugin state:', err)
       setError('Failed to load plugin state file')
@@ -1422,18 +1427,51 @@ Your response must include:
   }
 
   const handleCodeUpdate = (code: string) => {
-    const updatedCode = distributeCodeUpdates(code)
-    setPendingCodeUpdate(updatedCode)
+    if (!code) return;
+    
+    // Store the code update for later use
+    setPendingCodeUpdate(code)
+    
+    // Show the version update modal
     setShowVersionUpdateModal(true)
   }
 
   const handleVersionUpdateSubmit = (newVersion: string) => {
-    if (pendingCodeUpdate) {
-      setGeneratedCode(pendingCodeUpdate)
-      createFileStructure(pendingCodeUpdate)
-      addCodeVersion(pendingCodeUpdate, 'AI suggested edit', newVersion)
-      setPendingCodeUpdate(null)
+    if (!pendingCodeUpdate) return;
+    
+    // Update plugin details with new version
+    if (pluginDetails) {
+      setPluginDetails({
+        ...pluginDetails,
+        version: newVersion
+      })
     }
+    
+    // Update version in the plugin code header
+    const updatedCode = pendingCodeUpdate.replace(
+      /Version:\s*([0-9]+\.?)+/,
+      `Version: ${newVersion}`
+    )
+    
+    // Apply the code update
+    setGeneratedCode(updatedCode)
+    createFileStructure(updatedCode)
+    
+    // Add to version history
+    addCodeVersion(updatedCode, 'AI suggested edit', newVersion)
+    
+    // Clear the pending update
+    setPendingCodeUpdate(null)
+    
+    // Close the modal
+    setShowVersionUpdateModal(false)
+    
+    // Update messages to show the code was updated
+    setMessages(prev => prev.map(msg => 
+      msg.type === 'assistant' && !msg.codeUpdate 
+        ? { ...msg, codeUpdate: true }
+        : msg
+    ))
   }
 
   const extractCustomFunctions = (code: string) => {
@@ -1504,8 +1542,41 @@ Your response must include:
     setFileStructure(prev => findAndUpdateFile(prev))
   }
 
+  // Add effect to load chat history from localStorage on mount
+  useEffect(() => {
+    const savedMessages = localStorage.getItem("chatHistory")
+    const savedCodeVersions = localStorage.getItem("codeVersions")
+    const savedPluginDetails = localStorage.getItem("pluginDetails")
+    const savedGeneratedCode = localStorage.getItem("generatedCode")
+    
+    if (savedMessages) {
+      setMessages(JSON.parse(savedMessages))
+    }
+    if (savedCodeVersions) {
+      setCodeVersions(JSON.parse(savedCodeVersions))
+    }
+    if (savedPluginDetails) {
+      setPluginDetails(JSON.parse(savedPluginDetails))
+    }
+    if (savedGeneratedCode) {
+      setGeneratedCode(savedGeneratedCode)
+    }
+  }, [])
+
+  // Add effect to save chat history to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem("chatHistory", JSON.stringify(messages))
+    localStorage.setItem("codeVersions", JSON.stringify(codeVersions))
+    if (pluginDetails) {
+      localStorage.setItem("pluginDetails", JSON.stringify(pluginDetails))
+    }
+    if (generatedCode) {
+      localStorage.setItem("generatedCode", generatedCode)
+    }
+  }, [messages, codeVersions, pluginDetails, generatedCode])
+
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-screen px-6 pb-[30px]">
       <h1 className="text-2xl font-bold p-4 border-b flex-shrink-0">WordPress Plugin Generator</h1>
       <div className="flex flex-1 min-h-0">
         {/* File Explorer Column */}
@@ -1518,7 +1589,7 @@ Your response must include:
         </div>
 
         {/* Main Content Column */}
-        <div className="flex-1 flex flex-col min-h-0">
+        <div className="flex-1 flex flex-col min-h-0 px-6">
           <div className="p-4 border-b flex-shrink-0">
             <div className="mb-4">
               <ModelSelector selectedModel={selectedModel} onModelChange={setSelectedModel} />
@@ -1660,7 +1731,6 @@ Your response must include:
               </div>
             )}
           </div>
-
           <div className="flex-1 min-h-0">
             <CodeEditor
               selectedFile={selectedFile}
@@ -1693,6 +1763,19 @@ Your response must include:
       </div>
 
       {/* Modals */}
+      <CodeSnippetModal
+        isOpen={isCodeSnippetModalOpen}
+        onClose={() => setIsCodeSnippetModalOpen(false)}
+        code={generatedCode}
+      />
+
+      <VersionUpdateModal
+        isOpen={showVersionUpdateModal}
+        onClose={() => setShowVersionUpdateModal(false)}
+        onSubmit={handleVersionUpdateSubmit}
+        currentVersion={codeVersions[currentVersionIndex]?.version || "1.0.0"}
+      />
+
       <PluginDetailsModal
         isOpen={showPluginDetailsModal}
         onClose={() => setShowPluginDetailsModal(false)}
@@ -1704,11 +1787,18 @@ Your response must include:
         }}
       />
 
-      <CodeSnippetModal
-        isOpen={isCodeSnippetModalOpen}
-        onClose={() => setIsCodeSnippetModalOpen(false)}
-        code={generatedCode}
+      <RevisionModal
+        isOpen={showRevisionModal}
+        onClose={() => setShowRevisionModal(false)}
+        onSubmit={handleRevisionSubmit}
+        pluginName={pluginName}
       />
+
+      {error && (
+        <div className="fixed bottom-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      )}
     </div>
   )
 }

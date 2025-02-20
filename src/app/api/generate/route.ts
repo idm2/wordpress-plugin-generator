@@ -1,11 +1,105 @@
 import { NextResponse } from "next/server"
-import { config } from "../../../../config/env"
+import { config } from "@/config/env"
+import { prompts } from "@/config/prompts"
 import type { ChatMessage } from "@/types/shared"
 import OpenAI from "openai"
 
 interface ApiResponse {
   content: string
 }
+
+const deletePostsExample = `Example for delete posts functionality:
+
+<?php
+// Security check
+if (!defined('ABSPATH')) {
+    exit;
+}
+
+// Add menu and register settings
+add_action('admin_menu', 'delete_all_posts_menu');
+add_action('admin_init', 'process_delete_all_posts');
+
+function delete_all_posts_menu() {
+    add_menu_page(
+        'Delete All Posts',
+        'Delete All Posts',
+        'manage_options',
+        'delete-all-posts',
+        'delete_all_posts_page',
+        'dashicons-trash'
+    );
+}
+
+function delete_all_posts_page() {
+    if (!current_user_can('manage_options')) {
+        wp_die(__('You do not have sufficient permissions to access this page.'));
+    }
+    ?>
+    <div class="wrap">
+        <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
+        <div class="notice notice-warning">
+            <p><strong>Warning:</strong> This action will permanently delete all posts. This cannot be undone!</p>
+        </div>
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+            <?php wp_nonce_field('delete_all_posts_nonce', 'delete_all_posts_nonce'); ?>
+            <input type="hidden" name="action" value="delete_all_posts">
+            <?php submit_button('Delete All Posts', 'delete button-primary', 'submit', true, array('onclick' => 'return confirm("Are you sure you want to delete all posts? This cannot be undone!");')); ?>
+        </form>
+    </div>
+    <?php
+}
+
+function process_delete_all_posts() {
+    if (!isset($_POST['action']) || $_POST['action'] !== 'delete_all_posts') {
+        return;
+    }
+
+    if (!current_user_can('manage_options')) {
+        wp_die(__('You do not have sufficient permissions to perform this action.'));
+    }
+
+    check_admin_referer('delete_all_posts_nonce', 'delete_all_posts_nonce');
+
+    $args = array(
+        'post_type' => 'post',
+        'posts_per_page' => -1,
+        'post_status' => 'any',
+        'fields' => 'ids'
+    );
+
+    $posts = get_posts($args);
+    $deleted = 0;
+
+    foreach ($posts as $post_id) {
+        if (wp_delete_post($post_id, true)) {
+            $deleted++;
+        }
+    }
+
+    wp_safe_redirect(add_query_arg(
+        array(
+            'page' => 'delete-all-posts',
+            'deleted' => $deleted
+        ),
+        admin_url('admin.php')
+    ));
+    exit;
+}
+
+// Add admin notice for success message
+add_action('admin_notices', 'delete_all_posts_admin_notice');
+
+function delete_all_posts_admin_notice() {
+    if (isset($_GET['page']) && $_GET['page'] === 'delete-all-posts' && isset($_GET['deleted'])) {
+        $deleted = intval($_GET['deleted']);
+        ?>
+        <div class="notice notice-success is-dismissible">
+            <p><?php printf(_n('%s post permanently deleted.', '%s posts permanently deleted.', $deleted, 'text-domain'), number_format_i18n($deleted)); ?></p>
+        </div>
+        <?php
+    }
+}`;
 
 async function handleDeepSeekRequest(messages: ChatMessage[]): Promise<ApiResponse> {
   if (!config.DEEPSEEK_API_KEY) {
@@ -168,6 +262,12 @@ export async function POST(req: Request) {
   try {
     const { messages, model = "openai" } = await req.json()
 
+    // Add the system prompt to the beginning of messages
+    const messagesWithSystemPrompt = [
+      { role: "system", content: prompts.pluginGeneration },
+      ...messages
+    ]
+
     // Create a new TransformStream for streaming
     const encoder = new TextEncoder()
     const stream = new TransformStream()
@@ -206,7 +306,7 @@ export async function POST(req: Request) {
 
           const completion = await openai.chat.completions.create({
             model: config.OPENAI_API_MODEL,
-            messages: messages.map(msg => ({
+            messages: messagesWithSystemPrompt.map(msg => ({
               role: msg.role,
               content: msg.content
             })),
@@ -235,7 +335,7 @@ export async function POST(req: Request) {
             },
             body: JSON.stringify({
               model: "deepseek-chat",
-              messages: messages.map(msg => ({
+              messages: messagesWithSystemPrompt.map(msg => ({
                 role: msg.role,
                 content: msg.content
               })),
@@ -283,7 +383,7 @@ export async function POST(req: Request) {
             },
             body: JSON.stringify({
               model: "qwen-plus",
-              messages: messages.map(msg => ({
+              messages: messagesWithSystemPrompt.map(msg => ({
                 role: msg.role,
                 content: msg.content
               })),

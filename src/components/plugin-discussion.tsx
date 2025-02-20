@@ -103,32 +103,19 @@ export function PluginDiscussion({
 
   return (
     <div className={cn("flex flex-col h-full", className)}>
-      <div className="text-2xl font-bold pl-5">Plugin Discussion and Change</div>
-      <div className="mt-[47px] mb-4 pl-5">
+      <div className="text-2xl font-bold pl-5 pt-5">Plugin Discussion and Change</div>
+      <div style={{ marginTop: "75px" }} className="mb-4 px-5">
         <RichTextarea
           value={inputValue}
           onChange={setInputValue}
           onFilesSelected={setFiles}
+          onSubmit={handleSubmit}
+          isSubmitting={isSubmitting}
           placeholder="Describe the changes needed..."
-          className="min-h-[100px]"
+          className="min-h-[100px] w-full bg-background resize-none idm2-discussion-input"
           selectedModel={selectedModel}
           clearAttachments={shouldClearAttachments}
         />
-        <div className="flex justify-end mt-2">
-          <Button onClick={handleSubmit} disabled={isSubmitting || (!inputValue.trim() && files.length === 0)}>
-            {isSubmitting ? (
-              <>
-                <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full mr-2" />
-                Generating response...
-              </>
-            ) : (
-              <>
-                <Send className="h-4 w-4 mr-2" />
-                Respond
-              </>
-            )}
-          </Button>
-        </div>
       </div>
       <Card className="flex-1 overflow-hidden pl-5">
         <div className="h-full overflow-y-auto p-4">

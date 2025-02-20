@@ -3,10 +3,11 @@
 import { useState, useRef, useEffect } from "react"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
-import { Paperclip, X, FileText, File, ImageIcon, Eye } from "lucide-react"
+import { Paperclip, X, FileText, File, ImageIcon, Eye, Send } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { processFile } from "@/lib/file-processor"
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip"
+import { FileDropZone } from "@/components/file-drop-zone"
 
 interface ProcessedFile extends File {
   imageUrl?: string
@@ -30,13 +31,24 @@ interface RichTextareaProps {
   placeholder?: string
   selectedModel?: string
   clearAttachments?: boolean
+  onSubmit?: () => void
+  isSubmitting?: boolean
 }
 
-export function RichTextarea({ value, onChange, onFilesSelected, className, placeholder, selectedModel = 'openai', clearAttachments = false }: RichTextareaProps) {
+export function RichTextarea({ value, onChange, onFilesSelected, className, placeholder, selectedModel = 'openai', clearAttachments = false, onSubmit, isSubmitting = false }: RichTextareaProps) {
   const [attachments, setAttachments] = useState<ProcessedFile[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (!isSubmitting && onSubmit && value.trim()) {
+        onSubmit();
+      }
+    }
+  };
 
   // Clear attachments only when explicitly told to do so
   useEffect(() => {
@@ -66,27 +78,14 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
     }
   }, [attachments])
 
-  const handleFiles = async (files: File[]) => {
-    setIsProcessing(true)
+  const handleFilesSelected = async (file: File) => {
     try {
-      const processedFiles: ProcessedFile[] = []
-      for (const file of files) {
-        try {
-          const result = await processFile(file)
-          const processedFile = Object.assign(file, {
-            imageUrl: result.imageUrl,
-            imageAnalysis: result.imageAnalysis,
-            metadata: result.metadata
-          })
-          processedFiles.push(processedFile)
-        } catch (error) {
-          console.error(`Error processing file ${file.name}:`, error)
-        }
+      const processed = await processFile(file)
+      if (processed.metadata) {
+        onFilesSelected([processed as ProcessedFile])
       }
-      setAttachments((prev) => [...prev, ...processedFiles])
-      onFilesSelected?.(processedFiles)
-    } finally {
-      setIsProcessing(false)
+    } catch (error) {
+      console.error('Error processing file:', error)
     }
   }
 
@@ -99,19 +98,19 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
 
     if (files.length > 0) {
       event.preventDefault()
-      await handleFiles(files)
+      await handleFilesSelected(files[0])
     }
   }
 
   const handleDrop = async (event: React.DragEvent<HTMLTextAreaElement>) => {
     event.preventDefault()
     const files = Array.from(event.dataTransfer.files)
-    await handleFiles(files)
+    await handleFilesSelected(files[0])
   }
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || [])
-    await handleFiles(files)
+    await handleFilesSelected(files[0])
   }
 
   const removeAttachment = (index: number) => {
@@ -151,13 +150,20 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
           ref={textareaRef}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
           placeholder={placeholder}
-          className={cn("pr-20", className)}
+          className={cn(
+            "resize-none overflow-hidden font-mono text-sm w-full",
+            "min-h-[100px] bg-background border rounded-md",
+            "pr-20",
+            "idm2-discussion-input",
+            className
+          )}
         />
-        <div className="absolute right-2 top-2 flex gap-1">
+        <div className="absolute right-2 bottom-2 flex gap-1">
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -165,7 +171,7 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-6 w-6 p-0"
+                  className="h-6 w-6 p-0 hover:bg-emerald-100"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isProcessing}
                 >
@@ -174,6 +180,29 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
               </TooltipTrigger>
               <TooltipContent>
                 <p>Attach files (images, PDFs, Word docs, etc.)</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 text-emerald-600 hover:bg-emerald-100"
+                  onClick={() => onSubmit?.()}
+                  disabled={isSubmitting || isProcessing || !value.trim()}
+                >
+                  {isSubmitting ? (
+                    <div className="animate-spin h-4 w-4 border-2 border-emerald-600 border-t-transparent rounded-full" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Send message (or press Enter)</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
