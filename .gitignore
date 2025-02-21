@@ -1,3 +1,5 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
 # dependencies
 /node_modules
 /.pnp
@@ -25,8 +27,11 @@ yarn-error.log*
 # local env files
 .env*.local
 .env
-.env.local
-.env.example
+.env.development.local
+.env.test.local
+.env.production.local
+.env-backup
+*env-backup*
 
 # vercel
 .vercel
@@ -47,3 +52,16 @@ next-env.d.ts
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Sensitive files
+*.key
+*.pem
+*.cert
+*.secret
+*backup*
+*secret*
+*api-key*
+
+# Logs
+*.log
+logs/

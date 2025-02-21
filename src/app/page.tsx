@@ -261,6 +261,40 @@ Functionality: ${fullRequest}`,
           }
         }
         generatedCode = tempCode
+      } else if (selectedModel === "anthropic") {
+        const response = await fetch("/api/anthropic", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ messages }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Anthropic API error: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        if (data.error) {
+          throw new Error(`Anthropic API error: ${data.error}`);
+        }
+        
+        // Extract code from response
+        const content = data.response;
+        if (!content) {
+          throw new Error('Empty response from Anthropic API');
+        }
+        
+        // Try to extract code from markdown code blocks first
+        const codeMatch = content.match(/```(?:php)?\s*([\s\S]*?)```/);
+        generatedCode = codeMatch ? codeMatch[1].trim() : content.trim();
+        
+        // Ensure code starts with PHP tag
+        if (!generatedCode.startsWith('<?php')) {
+          generatedCode = `<?php\n${generatedCode}`;
+        }
+        
+        setGeneratedCode(generatedCode);
       } else if (selectedModel === "deepseek" || selectedModel === "qwen") {
         const response = await fetch("/api/generate", {
           method: "POST",
@@ -1158,33 +1192,36 @@ Plugin name: ${pluginDetails?.name || pluginName}`,
             }
           }
         }
-      } else if (selectedModel === "ollama") {
-        await generateResponse(
-          selectedModel,
-          conversationHistory,
-          (chunk: string) => {
-            tempResponse += chunk
-            
-            if (chunk.includes('```')) {
-              isInCodeBlock = !isInCodeBlock
-            } else if (isInCodeBlock) {
-              codeBlock += chunk
-            }
-            
-            const now = Date.now()
-            if (now - lastUpdateTime >= updateInterval && tempMessageIdRef.current === tempMessageId) {
-              setMessages(prev => {
-                const uniqueMessages = Array.from(new Map(prev.map(msg => [msg.id, msg])).values())
-                return uniqueMessages.map(msg => 
-                  msg.id === tempMessageId 
-                    ? { ...msg, content: tempResponse }
-                  : msg
-                )
-              })
-              lastUpdateTime = now
-            }
-          }
-        )
+      } else if (selectedModel === "anthropic") {
+        const response = await fetch("/api/anthropic", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messages: conversationHistory,
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error(`Anthropic API error: ${response.statusText}`)
+        }
+
+        const data = await response.json()
+        if (data.error) {
+          throw new Error(`Anthropic API error: ${data.error}`)
+        }
+        
+        tempResponse = data.response
+
+        setMessages(prev => {
+          const uniqueMessages = Array.from(new Map(prev.map(msg => [msg.id, msg])).values())
+          return uniqueMessages.map(msg => 
+            msg.id === tempMessageId 
+              ? { ...msg, content: tempResponse }
+              : msg
+          )
+        })
       } else {
         throw new Error(`Unsupported model: ${selectedModel}`)
       }

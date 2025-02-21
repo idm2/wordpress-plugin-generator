@@ -30,73 +30,91 @@ export function CodeSnippetModal({ isOpen, onClose, code }: CodeSnippetModalProp
   }
 
   // Process the code to create a standalone functions.php snippet
-  const getProcessedCode = (fullCode: string) => {
-    // First remove the plugin header if it exists
-    let processedCode = fullCode
-      .replace(/^<\?php\s*\/\*[\s\S]*?\*\/\s*/m, '') // Remove plugin header
-      .replace(/\/\*[\s\S]*?\*\//g, '') // Remove all other block comments
-      .replace(/\/\/[^\n]*(\n|$)/g, '') // Remove all single-line comments
-      .replace(/```[\s\S]*?```/g, '') // Remove any markdown code blocks
-      .replace(/```php[\s\S]*?```/g, '') // Remove any PHP markdown blocks
-      .replace(/\n+\s*(?:Note|This|Please|Here|The|Usage|Installation)[^{}\n]*(?:\n|$)/gi, '\n') // Remove explanatory text
-      .replace(/\n+\s*[A-Za-z](?![({`'"])[^\n{};]*(?:\n|$)/g, '\n') // Remove any lines with just text
-      .replace(/^\s*<\?php\s*/m, '') // Remove opening PHP tag
-      .replace(/defined\s*\(\s*['"]ABSPATH['"]\s*\)\s*\|\|\s*exit\s*;/, '') // Remove ABSPATH check
-      .replace(/\n+\s*This plugin.*$/gm, '') // Remove any trailing plugin description
-      .replace(/\n+\s*The plugin.*$/gm, '') // Remove any trailing plugin explanation
-      .replace(/\n+\s*For more information.*$/gm, '') // Remove any trailing information
-      .replace(/\n+\s*@.*$/gm, '') // Remove any trailing documentation
-      .replace(/\n+\s*\*.*$/gm, '') // Remove any trailing block comments
-      .replace(/\n+\s*```.*$/gm, '') // Remove any trailing markdown
-      .trim()
-
-    // Add ABSPATH check at the beginning
-    let snippetCode = `if (!defined('ABSPATH')) exit;\n\n`
-
-    // Extract namespace if it exists
-    const namespaceMatch = processedCode.match(/namespace\s+([^;]+);/)
-    const namespace = namespaceMatch ? namespaceMatch[1] : null
-
-    // Remove namespace declaration if it exists
-    processedCode = processedCode.replace(/namespace\s+[^;]+;/, '')
-
-    // If there was a namespace, wrap the code in a namespace block
-    if (namespace) {
-      snippetCode += `namespace ${namespace} {\n${processedCode}\n}`
-    } else {
-      snippetCode += processedCode
+  const getProcessedCode = (fullCode: string | null | undefined): string => {
+    if (!fullCode || typeof fullCode !== 'string') {
+      return '<?php\n// No code provided'
     }
 
-    // Fix common PHP syntax issues
-    snippetCode = snippetCode
-      .replace(/=\s*['"]([^'"\n]*?)(?:\n|$)/g, "= '$1'") // Add missing closing quotes
-      .replace(/=\s*['"]([^'"\n]*?)\s*;/g, "= '$1';") // Fix string assignments
-      .replace(/admin_url\s*\(/g, "admin_url(") // Fix admin_url spacing
-      .replace(/wp_redirect\s*\(/g, "wp_redirect(") // Fix wp_redirect spacing
-      .replace(/wp_verify_nonce\s*\(/g, "wp_verify_nonce(") // Fix nonce function spacing
-      .replace(/<\?php\s*(new\s+[\w_]+\s*\([^)]*\))\s*;?\s*\?>/g, "$1;") // Fix class instantiation
-      .replace(/<\?php\s*([$\w\->]+\s*=\s*new\s+[\w_]+)\s*\(\s*\$args\s*\)\s*;?\s*\?>/g, "$1($args);") // Fix WP_Query instantiation
-      .replace(/<\?php\s*([\w_]+(?:->[\w_]+)*\([^)]*\))\s*;?\s*\?>/g, "$1;") // Fix method calls
-      .replace(/\$posts\s*=\s*new\s*<\?php\s*WP_Query/g, "$posts = new WP_Query") // Fix WP_Query instantiation
-      .replace(/\?>\s*\);\s*\?>/g, ");") // Fix double closing tags
-      .replace(/\?>\s*;\s*\?>/g, ";") // Fix semicolon between tags
-      .replace(/(\s*)\?>\s*<(div|form|h[1-6])/g, "$1?>\n$1<$2") // Add newline before block elements
-      .replace(/(\s*)<\/(div|form|h[1-6])>\s*\?>/g, "$1</$2>\n$1<?php") // Add newline after block elements
-      .replace(/>\s*;(?:\s*\?>)?/g, ">") // Remove semicolons after HTML tags
-      .replace(/\?>\s*<\?php\s*/g, "") // Remove empty PHP transitions
-      .replace(/>\s*\?>\s*<?php\s*</g, ">\n<") // Remove PHP transitions between tags
-      .replace(/>\s*\?>\s*<?php\s*$/gm, ">") // Remove trailing PHP tags
-      .replace(/^\s*\?>\s*<?php\s*</gm, "<") // Remove leading PHP tags
-      .replace(/\n{3,}/g, "\n\n") // Remove excessive newlines
-      .replace(/(\s*)\?>\s*\n\s*</g, "$1?>\n$1<") // Fix indentation after PHP closing tag
-      .replace(/>\s*\n\s*(\s*)\?>/g, ">\n$1<?php") // Fix indentation before PHP opening tag
-      .replace(/\?>\s*<\?php\s*/g, "") // Remove any remaining empty PHP transitions
-      .replace(/\s+$/gm, "") // Remove trailing whitespace
-      .replace(/\{\s*\n+\s*\n+/g, "{\n") // Fix spacing after opening braces
-      .replace(/\n+\s*\}/g, "\n}") // Fix spacing before closing braces
-      .trim()
+    try {
+      // Ensure we're working with a string
+      let processedCode = String(fullCode).trim()
 
-    return snippetCode
+      // If the code is wrapped in markdown code blocks, extract it
+      const codeMatch = processedCode.match(/```(?:php)?\s*([\s\S]*?)```/)
+      if (codeMatch) {
+        processedCode = codeMatch[1].trim()
+      }
+
+      // First remove the plugin header if it exists
+      processedCode = processedCode
+        .replace(/^<\?php\s*\/\*[\s\S]*?\*\/\s*/m, '') // Remove plugin header
+        .replace(/\/\*[\s\S]*?\*\//g, '') // Remove all other block comments
+        .replace(/\/\/[^\n]*(\n|$)/g, '') // Remove all single-line comments
+        .replace(/```[\s\S]*?```/g, '') // Remove any markdown code blocks
+        .replace(/```php[\s\S]*?```/g, '') // Remove any PHP markdown blocks
+        .replace(/\n+\s*(?:Note|This|Please|Here|The|Usage|Installation)[^{}\n]*(?:\n|$)/gi, '\n') // Remove explanatory text
+        .replace(/\n+\s*[A-Za-z](?![({`'"])[^\n{};]*(?:\n|$)/g, '\n') // Remove any lines with just text
+        .replace(/^\s*<\?php\s*/m, '') // Remove opening PHP tag
+        .replace(/defined\s*\(\s*['"]ABSPATH['"]\s*\)\s*\|\|\s*exit\s*;/, '') // Remove ABSPATH check
+        .replace(/\n+\s*This plugin.*$/gm, '') // Remove any trailing plugin description
+        .replace(/\n+\s*The plugin.*$/gm, '') // Remove any trailing plugin explanation
+        .replace(/\n+\s*For more information.*$/gm, '') // Remove any trailing information
+        .replace(/\n+\s*@.*$/gm, '') // Remove any trailing documentation
+        .replace(/\n+\s*\*.*$/gm, '') // Remove any trailing block comments
+        .replace(/\n+\s*```.*$/gm, '') // Remove any trailing markdown
+        .trim()
+
+      // Add ABSPATH check at the beginning
+      let snippetCode = `<?php\n\nif (!defined('ABSPATH')) exit;\n\n`
+
+      // Extract namespace if it exists
+      const namespaceMatch = processedCode.match(/namespace\s+([^;]+);/)
+      const namespace = namespaceMatch ? namespaceMatch[1] : null
+
+      // Remove namespace declaration if it exists
+      processedCode = processedCode.replace(/namespace\s+[^;]+;/, '')
+
+      // If there was a namespace, wrap the code in a namespace block
+      if (namespace) {
+        snippetCode += `namespace ${namespace} {\n${processedCode}\n}`
+      } else {
+        snippetCode += processedCode
+      }
+
+      // Fix common PHP syntax issues
+      snippetCode = snippetCode
+        .replace(/=\s*['"]([^'"\n]*?)(?:\n|$)/g, "= '$1'") // Add missing closing quotes
+        .replace(/=\s*['"]([^'"\n]*?)\s*;/g, "= '$1';") // Fix string assignments
+        .replace(/admin_url\s*\(/g, "admin_url(") // Fix admin_url spacing
+        .replace(/wp_redirect\s*\(/g, "wp_redirect(") // Fix wp_redirect spacing
+        .replace(/wp_verify_nonce\s*\(/g, "wp_verify_nonce(") // Fix nonce function spacing
+        .replace(/<\?php\s*(new\s+[\w_]+\s*\([^)]*\))\s*;?\s*\?>/g, "$1;") // Fix class instantiation
+        .replace(/<\?php\s*([$\w\->]+\s*=\s*new\s+[\w_]+)\s*\(\s*\$args\s*\)\s*;?\s*\?>/g, "$1($args);") // Fix WP_Query instantiation
+        .replace(/<\?php\s*([\w_]+(?:->[\w_]+)*\([^)]*\))\s*;?\s*\?>/g, "$1;") // Fix method calls
+        .replace(/\$posts\s*=\s*new\s*<\?php\s*WP_Query/g, "$posts = new WP_Query") // Fix WP_Query instantiation
+        .replace(/\?>\s*\);\s*\?>/g, ");") // Fix double closing tags
+        .replace(/\?>\s*;\s*\?>/g, ";") // Fix semicolon between tags
+        .replace(/(\s*)\?>\s*<(div|form|h[1-6])/g, "$1?>\n$1<$2") // Add newline before block elements
+        .replace(/(\s*)<\/(div|form|h[1-6])>\s*\?>/g, "$1</$2>\n$1<?php") // Add newline after block elements
+        .replace(/>\s*;(?:\s*\?>)?/g, ">") // Remove semicolons after HTML tags
+        .replace(/\?>\s*<\?php\s*/g, "") // Remove empty PHP transitions
+        .replace(/>\s*\?>\s*<?php\s*</g, ">\n<") // Remove PHP transitions between tags
+        .replace(/>\s*\?>\s*<?php\s*$/gm, ">") // Remove trailing PHP tags
+        .replace(/^\s*\?>\s*<?php\s*</gm, "<") // Remove leading PHP tags
+        .replace(/\n{3,}/g, "\n\n") // Remove excessive newlines
+        .replace(/(\s*)\?>\s*\n\s*</g, "$1?>\n$1<") // Fix indentation after PHP closing tag
+        .replace(/>\s*\n\s*(\s*)\?>/g, ">\n$1<?php") // Fix indentation before PHP opening tag
+        .replace(/\?>\s*<\?php\s*/g, "") // Remove any remaining empty PHP transitions
+        .replace(/\s+$/gm, "") // Remove trailing whitespace
+        .replace(/\{\s*\n+\s*\n+/g, "{\n") // Fix spacing after opening braces
+        .replace(/\n+\s*\}/g, "\n}") // Fix spacing before closing braces
+        .trim()
+
+      return snippetCode
+    } catch (error) {
+      console.error('Error processing code:', error)
+      return '<?php\n// Error processing code'
+    }
   }
 
   if (!mounted) return null

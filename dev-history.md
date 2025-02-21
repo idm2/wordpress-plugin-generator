@@ -398,3 +398,12 @@ private static function create_tables() {
 - Better horizontal spacing
 - Enhanced user experience with aligned inputs
 - Maintained all existing functionality 
+
+## ModelSelector Component Updates
+- **File**: `src/components/ModelSelector.tsx`
+- **Changes**:
+  1. Changed the Anthropic model title from "Anthropic Claude 3 Opus" to "Claude 3" for better clarity
+  2. Added solid white background to the model selector dropdown
+     - Added `bg-white` class to SelectTrigger
+     - Added `bg-white` class to SelectContent for consistent styling
+- **Purpose**: Improved UI consistency and readability of the model selector dropdown 
