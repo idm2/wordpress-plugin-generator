@@ -26,10 +26,13 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen }: SidebarProps) => {
   const trigger = useRef<HTMLButtonElement>(null)
   const sidebar = useRef<HTMLElement>(null)
 
-  const storedSidebarExpanded = localStorage.getItem('sidebar-expanded')
-  const [sidebarExpanded, setSidebarExpanded] = useState(
-    storedSidebarExpanded === null ? false : storedSidebarExpanded === 'true'
-  )
+  const [sidebarExpanded, setSidebarExpanded] = useState(false)
+
+  // Initialize from localStorage after mount
+  useEffect(() => {
+    const storedSidebarExpanded = localStorage.getItem('sidebar-expanded')
+    setSidebarExpanded(storedSidebarExpanded === null ? false : storedSidebarExpanded === 'true')
+  }, [])
 
   // Close on click outside
   useEffect(() => {
