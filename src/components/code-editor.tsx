@@ -8,7 +8,7 @@ import php from "react-syntax-highlighter/dist/esm/languages/hljs/php"
 import css from "react-syntax-highlighter/dist/esm/languages/hljs/css"
 import { tomorrow } from "react-syntax-highlighter/dist/esm/styles/hljs"
 import type { FileStructure } from "@/types/shared"
-import { RefreshCw } from "lucide-react"
+import { RefreshCw, Loader2 } from "lucide-react"
 
 SyntaxHighlighter.registerLanguage("javascript", js)
 SyntaxHighlighter.registerLanguage("php", php)
@@ -19,9 +19,10 @@ interface CodeEditorProps {
   fileStructure: FileStructure[]
   onCodeChange?: (newCode: string) => void
   loading?: boolean
+  streaming?: boolean
 }
 
-export function CodeEditor({ selectedFile, fileStructure, onCodeChange, loading }: CodeEditorProps) {
+export function CodeEditor({ selectedFile, fileStructure, onCodeChange, loading, streaming = false }: CodeEditorProps) {
   const [code, setCode] = useState<string>("")
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -70,9 +71,31 @@ export function CodeEditor({ selectedFile, fileStructure, onCodeChange, loading 
   return (
     <div className="relative h-full overflow-hidden">
       {loading ? (
+        <div className="flex items-center justify-center h-full">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-8 w-8 animate-spin text-purple-600" />
+            <p className="text-lg font-medium text-purple-600">Generating plugin...</p>
+          </div>
+        </div>
+      ) : streaming ? (
         <div className="flex flex-col items-center justify-center h-full text-gray-500 space-y-4">
           <RefreshCw className="h-12 w-12 text-emerald-500 animate-[spin_2s_linear_infinite]" />
-          <p className="text-lg font-medium text-emerald-600">Generating plugin...</p>
+          <p className="text-lg font-medium text-emerald-600">Streaming code...</p>
+          <div className="w-full h-full overflow-auto p-4">
+            <SyntaxHighlighter
+              language={getLanguage(selectedFile)}
+              style={tomorrow}
+              customStyle={{
+                margin: 0,
+                padding: "1rem",
+                height: "100%",
+                fontSize: "0.875rem",
+                background: "transparent",
+              }}
+            >
+              {code}
+            </SyntaxHighlighter>
+          </div>
         </div>
       ) : selectedFile ? (
         <>

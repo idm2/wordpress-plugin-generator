@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { Download, Eye, RefreshCw, Code, Save, FolderOpen, FileText, Loader2, Wand2, Settings2 } from "lucide-react"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { Download, Eye, RefreshCw, Code, Save, FolderOpen, FileText, Loader2, Wand2 } from "lucide-react"
 import { OpenAI } from "openai"
 import { AdminDetailsModal } from "@/components/admin-details-modal"
 import FileExplorer from "@/components/file-explorer"
@@ -28,10 +28,6 @@ import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/comp
 import { FileDropZone } from '@/components/file-drop-zone'
 import { v4 as uuidv4 } from 'uuid'
 import { generateResponse } from "@/lib/ollama"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { generateFileChanges } from "@/lib/diff-utils"
-import { DiffViewModal } from "@/components/diff-view-modal"
-import { cleanupGeneratedCode, cleanAndFormatCode } from '@/lib/code-cleanup'
 
 interface ChangelogEntry {
   id: string
@@ -79,13 +75,8 @@ export default function PluginGenerator() {
   const [showVersionUpdateModal, setShowVersionUpdateModal] = useState(false)
   const [pendingCodeUpdate, setPendingCodeUpdate] = useState<string | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
-  const [generatedPlugin, setGeneratedPlugin] = useState(false)
+  const [updatedFiles, setUpdatedFiles] = useState<Record<string, { added: number; deleted: number }>>({})
   const tempMessageIdRef = useRef<string | null>(null)
-  const [showValidationModal, setShowValidationModal] = useState(false)
-  const isInitialRender = useRef(true)
-  const [showDiffModal, setShowDiffModal] = useState(false)
-  const [selectedVersionForDiff, setSelectedVersionForDiff] = useState<string | null>(null)
-  const [selectedFileForDiff, setSelectedFileForDiff] = useState<string | null>(null)
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -113,187 +104,21 @@ export default function PluginGenerator() {
     }
   }
 
-  // Helper function to update a file in the structure
-  const updateFileInStructure = (structure: FileStructure[], filePath: string, content: string) => {
-    const parts = filePath.split('/');
-    const fileName = parts.pop() || '';
-    
-    let current = structure;
-    let currentPath = '';
-    
-    // Navigate to the correct folder
-    for (const part of parts) {
-      currentPath = currentPath ? `${currentPath}/${part}` : part;
-      
-      let folder = current.find(item => item.type === 'folder' && item.name === part);
-      
-      if (!folder) {
-        folder = {
-          name: part,
-          type: 'folder',
-          path: currentPath,
-          children: []
-        };
-        current.push(folder);
-      }
-      
-      if (!folder.children) {
-        folder.children = [];
-      }
-      
-      current = folder.children;
-    }
-    
-    // Update or create the file
-    const filePath2 = currentPath ? `${currentPath}/${fileName}` : fileName;
-    const existingFile = current.find(item => item.type === 'file' && item.name === fileName);
-    
-    if (existingFile) {
-      existingFile.content = content;
-    } else {
-      current.push({
-        name: fileName,
-        type: 'file',
-        content,
-        path: filePath2
-      });
-    }
-  }
-
-  // Helper function to add a file to the structure
-  const addFileToStructure = (structure: FileStructure[], filePath: string, content: string) => {
-    const parts = filePath.split('/');
-    const fileName = parts.pop() || '';
-    
-    let current = structure;
-    let currentPath = '';
-    
-    // Create folders as needed
-    for (const part of parts) {
-      currentPath = currentPath ? `${currentPath}/${part}` : part;
-      
-      let folder = current.find(item => item.type === 'folder' && item.name === part);
-      
-      if (!folder) {
-        folder = {
-          name: part,
-          type: 'folder',
-          path: currentPath,
-          children: []
-        };
-        current.push(folder);
-      }
-      
-      if (!folder.children) {
-        folder.children = [];
-      }
-      
-      current = folder.children;
-    }
-    
-    // Add the file
-    const filePath2 = currentPath ? `${currentPath}/${fileName}` : fileName;
-    current.push({
-      name: fileName,
-      type: 'file',
-      content,
-      path: filePath2
-    });
-  }
-
-  const parseCodeToFileStructure = (code: string): FileStructure[] => {
-    // Create a new structure from the code
-    const structure: FileStructure[] = [];
-    
-    // Try to parse using file markers first
-    const fileMarkerRegex = /\/\*\s*FILE:\s*([^\s]+)\s*\*\/\s*([^]*?)(?=\/\*\s*FILE:|$)/g;
-    let match;
-    let foundFiles = false;
-    
-    while ((match = fileMarkerRegex.exec(code)) !== null) {
-      foundFiles = true;
-      const filePath = match[1].trim();
-      const fileContent = match[2].trim();
-      
-      // Add the file to the structure
-      addFileToStructure(structure, filePath, fileContent);
-    }
-    
-    // If no files were found with markers, try to identify PHP files
-    if (!foundFiles) {
-      // Look for PHP files
-      const phpFileRegex = /(?:\/\*\*[\s\S]*?\*\/\s*)?(?:\/\*[\s\S]*?\*\/\s*)?(<\?php[\s\S]*?(?:\?>|$))/g;
-      let phpMatch;
-      
-      while ((phpMatch = phpFileRegex.exec(code)) !== null) {
-        const phpContent = phpMatch[0];
-        
-        // Try to extract the plugin name from the content
-        const pluginNameMatch = phpContent.match(/Plugin Name:\s*([^\r\n]+)/);
-        const pluginName = (pluginNameMatch ? pluginNameMatch[1].trim() : pluginDetails?.name || 'plugin').toLowerCase().replace(/\s+/g, '-');
-        
-        // Determine the file name based on content
-        let fileName = `${pluginName}.php`;
-        
-        // Check if it's an admin class
-        if (phpContent.includes('class Admin') || phpContent.includes('admin-specific')) {
-          fileName = `admin/class-${pluginName}-admin.php`;
-        } 
-        // Check if it's a public class
-        else if (phpContent.includes('class Public') || phpContent.includes('public-facing')) {
-          fileName = `public/class-${pluginName}-public.php`;
-        }
-        // Check if it's an includes file
-        else if (phpContent.includes('class Activator') || phpContent.includes('class Deactivator') || phpContent.includes('class I18n') || phpContent.includes('class Loader')) {
-          const classMatch = phpContent.match(/class\s+([A-Za-z0-9_]+)/);
-          if (classMatch) {
-            const className = classMatch[1].toLowerCase();
-            fileName = `includes/class-${pluginName}-${className}.php`;
-          }
-        }
-        
-        // Add the file to the structure
-        addFileToStructure(structure, fileName, phpContent);
-      }
-    }
-    
-    // If still no files were found, create a default structure with a single file
-    if (structure.length === 0) {
-      const pluginName = pluginDetails?.name || 'plugin';
-      const mainFile = `${pluginName}.php`;
-      
-      structure.push({
-        name: mainFile,
-        type: 'file',
-        content: code,
-        path: mainFile
-      });
-    }
-    
-    return structure;
-  }
-
   const addCodeVersion = (code: string, description: string = '', versionNumber?: string) => {
     const versionString = versionNumber || `v${(codeVersions.length + 1).toString().padStart(2, '0')}`
     
-    // Generate file structure for the new code
-    const newStructure = parseCodeToFileStructure(code)
-    
-    // Get the previous file structure
-    const previousStructure = codeVersions.length > 0 ? parseCodeToFileStructure(codeVersions[codeVersions.length - 1].code) : null
-    
-    // Generate file changes
-    const fileChanges = generateFileChanges(previousStructure, newStructure)
-    
-    console.log('Generated file changes:', fileChanges);
+    // Track changes if there's a previous version
+    if (codeVersions.length > 0) {
+      const previousCode = codeVersions[codeVersions.length - 1].code
+      trackFileChanges(previousCode, code)
+    }
     
     const versionEntry: CodeVersion = {
       id: Date.now().toString(),
       version: versionString,
       code,
       timestamp: new Date().toISOString(),
-      description,
-      fileChanges
+      description
     }
     
     const updatedVersions = [...codeVersions, versionEntry]
@@ -362,26 +187,21 @@ export default function PluginGenerator() {
   }
 
   const generateCode = async () => {
-    if (!description && attachedFiles.length === 0) {
-      setShowValidationModal(true)
-      return
-    }
-
-    if (!hasFilledDetails) {
-      setShowPluginDetailsModal(true)
-      return
-    }
-
-    if (!pluginDetails) {
-      setError("Please fill in plugin details first")
-      return
-    }
-
-    setLoading(true)
-    setError(null)
-    setIsStreaming(false)
-
     try {
+      if (!description && attachedFiles.length === 0) {
+        setError("Please enter a description or attach files.")
+        return
+      }
+
+      if (!pluginDetails) {
+        setError("Plugin details are required.")
+        return
+      }
+
+      setLoading(true)
+      setError(null)
+      setIsStreaming(true)
+
       let fullRequest = description
 
       if (attachedFiles.length > 0) {
@@ -460,7 +280,6 @@ Functionality: ${fullRequest}`,
         }
         generatedCode = tempCode
       } else if (selectedModel === "anthropic") {
-        setIsStreaming(true)
         const tempMessageId = tempMessageIdRef.current
         const response = await fetch("/api/anthropic", {
           method: "POST",
@@ -522,9 +341,7 @@ Functionality: ${fullRequest}`,
         }
         
         generatedCode = tempCode
-        setIsStreaming(false)
       } else if (selectedModel === "deepseek") {
-        setIsStreaming(true)
         tempCode = ""
         
         try {
@@ -588,8 +405,6 @@ Functionality: ${fullRequest}`,
         } catch (error) {
           console.error("DeepSeek API error:", error)
           throw error
-        } finally {
-          setIsStreaming(false)
         }
       } else {
         throw new Error(`Unsupported model: ${selectedModel}`)
@@ -609,10 +424,6 @@ Functionality: ${fullRequest}`,
       setGeneratedCode(generatedCode)
       createFileStructure(generatedCode)
       addCodeVersion(generatedCode, description || 'Initial plugin generation')
-
-      // After successful code generation, set generatedPlugin to true
-      console.log("Setting generatedPlugin to true after successful code generation")
-      setGeneratedPlugin(true)
     } catch (err) {
       console.error("Error generating code:", err)
       setError(`Error generating code: ${err instanceof Error ? err.message : "Unknown error"}`)
@@ -681,13 +492,10 @@ Functionality: ${fullRequest}`,
     const match = response.match(codeBlockRegex)
 
     if (match) {
-      let code = match[1]
+      const code = match[1]
         .replace(/^[\s\S]*?<\?php\s*/m, "<?php\n")
         .replace(/\n<\?php/g, "")
         .trim()
-    
-      // Clean up code to remove artifacts that could break WordPress plugins
-      code = cleanAndFormatCode(code)
 
       const message = response.replace(codeBlockRegex, "").trim()
 
@@ -705,545 +513,191 @@ Functionality: ${fullRequest}`,
       }
     }
 
-    return { message: response }
+    return {
+      message: response,
+    }
   }
 
   const createFileStructure = (code: string) => {
-    if (!pluginDetails?.name) return
+    // Reset the updated files when creating a new file structure
+    setUpdatedFiles({})
+    
+    // Existing code for creating file structure
+    const files: FileStructure[] = []
+    const mainFile: FileStructure = {
+      name: `${pluginName}.php`,
+      type: "file",
+      content: code,
+    }
+    files.push(mainFile)
 
-    const pluginName = pluginDetails.name
-    const isTraditional = pluginDetails.structure === "traditional"
-
-    const headerMatch = code.match(/\/\*[\s\S]*?\*\//)
-    const pluginHeader = headerMatch ? headerMatch[0] : ""
-    const mainCode = code.replace(headerMatch?.[0] || "", "").trim()
-    const customFunctions = extractCustomFunctions(mainCode)
-
-    const structure: FileStructure[] = [
-      {
-        name: pluginName,
-        type: "folder",
-        children: isTraditional
-          ? [
-          {
-            name: "admin",
-            type: "folder",
-            children: [
-                  {
-                    name: `class-${pluginName.toLowerCase()}-admin.php`,
-                    type: "file",
-                    content: generateAdminClass(pluginName),
-                    path: `${pluginName}/admin/class-${pluginName.toLowerCase()}-admin.php`
-                  },
-              {
-                name: "css",
-                type: "folder",
-                    children: [
-                      {
-                        name: "index.php",
-                        type: "file",
-                        content: "<?php // Silence is golden",
-                        path: `${pluginName}/admin/css/index.php`
-                      }
-                    ]
-              },
-              {
-                name: "js",
-                type: "folder",
-                    children: [
-                      {
-                        name: "index.php",
-                        type: "file",
-                        content: "<?php // Silence is golden",
-                        path: `${pluginName}/admin/js/index.php`
-                      }
-                    ]
-                  },
-                  {
-                    name: "partials",
-                    type: "folder",
-                    children: [
-                      {
-                        name: "index.php",
-                type: "file",
-                        content: "<?php // Silence is golden",
-                        path: `${pluginName}/admin/partials/index.php`
-                      }
-                    ]
-                  }
-                ]
-          },
-          {
-            name: "includes",
-            type: "folder",
-            children: [
-              {
-                    name: `class-${pluginName.toLowerCase()}-activator.php`,
-                type: "file",
-                    content: generateActivatorClass(pluginName),
-                    path: `${pluginName}/includes/class-${pluginName.toLowerCase()}-activator.php`
-              },
-              {
-                    name: `class-${pluginName.toLowerCase()}-deactivator.php`,
-                type: "file",
-                    content: generateDeactivatorClass(pluginName),
-                    path: `${pluginName}/includes/class-${pluginName.toLowerCase()}-deactivator.php`
-                  },
-                  {
-                    name: `class-${pluginName.toLowerCase()}-i18n.php`,
-                    type: "file",
-                    content: generateI18nClass(pluginName),
-                    path: `${pluginName}/includes/class-${pluginName.toLowerCase()}-i18n.php`
-                  },
-                  {
-                    name: `class-${pluginName.toLowerCase()}-loader.php`,
-                    type: "file",
-                    content: generateLoaderClass(pluginName),
-                    path: `${pluginName}/includes/class-${pluginName.toLowerCase()}-loader.php`
-                  },
-                  {
-                    name: `class-${pluginName.toLowerCase()}.php`,
-                    type: "file",
-                    content: generateMainClass(pluginName),
-                    path: `${pluginName}/includes/class-${pluginName.toLowerCase()}.php`
-                  },
-                  {
-                    name: "index.php",
-                    type: "file",
-                    content: "<?php // Silence is golden",
-                    path: `${pluginName}/includes/index.php`
-                  }
-                ]
-              },
-              {
-                name: "languages",
-                type: "folder",
-                children: [
-                  {
-                    name: "index.php",
-                    type: "file",
-                    content: "<?php // Silence is golden",
-                    path: `${pluginName}/languages/index.php`
-                  },
-                  {
-                    name: `${pluginName.toLowerCase()}.pot`,
-                    type: "file",
-                    content: "",
-                    path: `${pluginName}/languages/${pluginName.toLowerCase()}.pot`
-                  }
-                ]
-          },
-          {
-            name: "public",
-            type: "folder",
-            children: [
-                  {
-                    name: `class-${pluginName.toLowerCase()}-public.php`,
-                    type: "file",
-                    content: generatePublicClass(pluginName),
-                    path: `${pluginName}/public/class-${pluginName.toLowerCase()}-public.php`
-                  },
-              {
-                name: "css",
-                type: "folder",
-                    children: [
-                      {
-                        name: "index.php",
-                        type: "file",
-                        content: "<?php // Silence is golden",
-                        path: `${pluginName}/public/css/index.php`
-                      }
-                    ]
-              },
-              {
-                name: "js",
-                type: "folder",
-                    children: [
-                      {
-                        name: "index.php",
-                        type: "file",
-                        content: "<?php // Silence is golden",
-                        path: `${pluginName}/public/js/index.php`
-                      }
-                    ]
-                  },
-                  {
-                    name: "partials",
-                    type: "folder",
-                    children: [
-                      {
-                        name: "index.php",
-                type: "file",
-                        content: "<?php // Silence is golden",
-                        path: `${pluginName}/public/partials/index.php`
-                      }
-                    ]
-                  }
-                ]
-              },
-              {
-                name: "index.php",
-                type: "file",
-                content: "<?php // Silence is golden",
-                path: `${pluginName}/index.php`
-              },
-              {
-                name: "LICENSE.txt",
-            type: "file",
-                content: generateLicenseContent(),
-                path: `${pluginName}/LICENSE.txt`
-              },
-              {
-                name: "README.txt",
-                type: "file",
-                content: generateReadmeContent(pluginName),
-                path: `${pluginName}/README.txt`
-              },
-              {
-                name: `${pluginName}.php`,
-                type: "file",
-                content: generateMainPluginFile(pluginHeader, customFunctions, pluginName),
-                path: `${pluginName}/${pluginName}.php`
-              },
-              {
-                name: "uninstall.php",
-                type: "file",
-                content: generateUninstallContent(),
-                path: `${pluginName}/uninstall.php`
-              }
-            ]
-          : [
-              {
-                name: `${pluginName}.php`,
-                type: "file",
-                content: code,
-                path: `${pluginName}/${pluginName}.php`
-              }
-            ]
+    // Extract includes and requires
+    const includeRegex = /(?:include|require|include_once|require_once)\s*\(\s*(?:plugin_dir_path\s*\(\s*__FILE__\s*\)\s*\.\s*['"](.+?)['"]|['"](.+?)['"])\s*\)/g
+    let match
+    while ((match = includeRegex.exec(code)) !== null) {
+      const includePath = match[1] || match[2]
+      if (includePath) {
+        addFileToStructure(files, includePath, "")
       }
-    ]
-
-    setFileStructure(structure)
-    setSelectedFile(`${pluginName}/${pluginName}.php`)
-  }
-
-  // Helper functions to generate class files
-  const generateMainPluginFile = (pluginHeader: string, customFunctions: string, pluginName: string) => {
-    return `${pluginHeader}
-
-if (!defined('WPINC')) {
-  die;
-}
-
-define('${pluginName.toUpperCase()}_VERSION', '${pluginDetails?.version || '1.0.0'}');
-
-${customFunctions}
-
-/**
- * The code that runs during plugin activation.
- */
-function activate_${pluginName.toLowerCase()}() {
-  require_once plugin_dir_path(__FILE__) . 'includes/class-activator.php';
-  ${pluginName}_Activator::activate();
-}
-
-/**
- * The code that runs during plugin deactivation.
- */
-function deactivate_${pluginName.toLowerCase()}() {
-  require_once plugin_dir_path(__FILE__) . 'includes/class-deactivator.php';
-  ${pluginName}_Deactivator::deactivate();
-}
-
-register_activation_hook(__FILE__, 'activate_${pluginName.toLowerCase()}');
-register_deactivation_hook(__FILE__, 'deactivate_${pluginName.toLowerCase()}');
-
-/**
- * The core plugin class that is used to define internationalization,
- * admin-specific hooks, and public-facing site hooks.
- */
-require_once plugin_dir_path(__FILE__) . 'includes/class-loader.php';
-require_once plugin_dir_path(__FILE__) . 'includes/class-i18n.php';
-require_once plugin_dir_path(__FILE__) . 'admin/class-admin.php';
-require_once plugin_dir_path(__FILE__) . 'public/class-public.php';
-
-/**
- * Begins execution of the plugin.
- */
-function run_${pluginName.toLowerCase()}() {
-  $plugin = new ${pluginName}_Loader();
-  $plugin->run();
-}
-run_${pluginName.toLowerCase()}();`
-  }
-
-  const generateAdminClass = (pluginName: string) => {
-    return `<?php
-/**
- * The admin-specific functionality of the plugin.
- */
-class ${pluginName}_Admin {
-  private $plugin_name;
-  private $version;
-
-  public function __construct($plugin_name, $version) {
-    $this->plugin_name = $plugin_name;
-    $this->version = $version;
-  }
-
-  public function enqueue_styles() {
-    wp_enqueue_style(
-      $this->plugin_name,
-      plugin_dir_url(__FILE__) . 'css/admin.css',
-      array(),
-      $this->version,
-      'all'
-    );
-  }
-
-  public function enqueue_scripts() {
-    wp_enqueue_script(
-      $this->plugin_name,
-      plugin_dir_url(__FILE__) . 'js/admin.js',
-      array('jquery'),
-      $this->version,
-      false
-    );
-  }
-}`
-  }
-
-  const generatePublicClass = (pluginName: string) => {
-    return `<?php
-/**
- * The public-facing functionality of the plugin.
- */
-class ${pluginName}_Public {
-  private $plugin_name;
-  private $version;
-
-  public function __construct($plugin_name, $version) {
-    $this->plugin_name = $plugin_name;
-    $this->version = $version;
-  }
-
-  public function enqueue_styles() {
-    wp_enqueue_style(
-      $this->plugin_name,
-      plugin_dir_url(__FILE__) . 'css/public.css',
-      array(),
-      $this->version,
-      'all'
-    );
-  }
-
-  public function enqueue_scripts() {
-    wp_enqueue_script(
-      $this->plugin_name,
-      plugin_dir_url(__FILE__) . 'js/public.js',
-      array('jquery'),
-      $this->version,
-      false
-    );
-  }
-}`
-  }
-
-  const generateActivatorClass = (pluginName: string) => {
-    return `<?php
-/**
- * Fired during plugin activation.
- */
-class ${pluginName}_Activator {
-  public static function activate() {
-    // Activation code here
-  }
-}`
-  }
-
-  const generateDeactivatorClass = (pluginName: string) => {
-    return `<?php
-/**
- * Fired during plugin deactivation.
- */
-class ${pluginName}_Deactivator {
-  public static function deactivate() {
-    // Deactivation code here
-  }
-}`
-  }
-
-  const generateI18nClass = (pluginName: string) => {
-    return `<?php
-/**
- * Define the internationalization functionality.
- */
-class ${pluginName}_i18n {
-  public function load_plugin_textdomain() {
-    load_plugin_textdomain(
-      '${pluginName.toLowerCase()}',
-      false,
-      dirname(dirname(plugin_basename(__FILE__))) . '/languages/'
-    );
-  }
-}`
-  }
-
-  const generateLoaderClass = (pluginName: string) => {
-    return `<?php
-/**
- * Register all actions and filters for the plugin.
- */
-class ${pluginName}_Loader {
-  protected $actions;
-  protected $filters;
-
-  public function __construct() {
-    $this->actions = array();
-    $this->filters = array();
-  }
-
-  public function add_action($hook, $component, $callback, $priority = 10, $accepted_args = 1) {
-    $this->actions = $this->add($this->actions, $hook, $component, $callback, $priority, $accepted_args);
-  }
-
-  public function add_filter($hook, $component, $callback, $priority = 10, $accepted_args = 1) {
-    $this->filters = $this->add($this->filters, $hook, $component, $callback, $priority, $accepted_args);
-  }
-
-  private function add($hooks, $hook, $component, $callback, $priority, $accepted_args) {
-    $hooks[] = array(
-      'hook'          => $hook,
-      'component'     => $component,
-      'callback'      => $callback,
-      'priority'      => $priority,
-      'accepted_args' => $accepted_args
-    );
-    return $hooks;
-  }
-
-  public function run() {
-    foreach ($this->filters as $hook) {
-      add_filter($hook['hook'], array($hook['component'], $hook['callback']), $hook['priority'], $hook['accepted_args']);
     }
-    foreach ($this->actions as $hook) {
-      add_action($hook['hook'], array($hook['component'], $hook['callback']), $hook['priority'], $hook['accepted_args']);
+
+    // Extract class definitions and create files for them
+    const classRegex = /class\s+(\w+)/g
+    while ((match = classRegex.exec(code)) !== null) {
+      const className = match[1]
+      if (className && className !== "WP") {
+        // Skip WordPress core classes
+        const classCode = extractClassCode(code, className)
+        if (classCode) {
+          const filePath = `includes/class-${className.toLowerCase()}.php`
+          addFileToStructure(files, filePath, classCode)
+        }
+      }
+    }
+
+    // Extract JavaScript code
+    const jsRegex = /(?:wp_enqueue_script|wp_register_script).*?['"].*?\.js['"]/g
+    while ((match = jsRegex.exec(code)) !== null) {
+      const jsPath = "assets/js/script.js"
+      addFileToStructure(
+        files,
+        jsPath,
+        `// JavaScript for ${pluginName} plugin
+document.addEventListener('DOMContentLoaded', function() {
+  console.log('${pluginName} plugin initialized');
+});`
+      )
+    }
+
+    // Extract CSS code
+    const cssRegex = /(?:wp_enqueue_style|wp_register_style).*?['"].*?\.css['"]/g
+    while ((match = cssRegex.exec(code)) !== null) {
+      const cssPath = "assets/css/style.css"
+      addFileToStructure(
+        files,
+        cssPath,
+        `/* CSS for ${pluginName} plugin */
+.${pluginName}-container {
+  padding: 20px;
+  background-color: #f9f9f9;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}`
+      )
+    }
+
+    setFileStructure(files)
+    if (files.length > 0 && files[0].type === "file") {
+      setSelectedFile(files[0].name)
     }
   }
-}`
-  }
 
-  const generateMainClass = (pluginName: string) => {
-    return `<?php
-/**
- * The core plugin class.
- */
-class ${pluginName} {
-  protected $loader;
-  protected $plugin_name;
-  protected $version;
-
-  public function __construct() {
-    if (defined('${pluginName.toUpperCase()}_VERSION')) {
-      $this->version = ${pluginName.toUpperCase()}_VERSION;
-    } else {
-      $this->version = '1.0.0';
+  // Track file changes between versions
+  const trackFileChanges = (oldCode: string, newCode: string) => {
+    const newChanges: Record<string, { added: number; deleted: number }> = {}
+    
+    // Compare main plugin file
+    const mainFileName = `${pluginName}.php`
+    const oldLines = oldCode.split('\n').length
+    const newLines = newCode.split('\n').length
+    const diff = newLines - oldLines
+    
+    if (diff !== 0) {
+      newChanges[mainFileName] = {
+        added: diff > 0 ? diff : 0,
+        deleted: diff < 0 ? Math.abs(diff) : 0
+      }
     }
-    $this->plugin_name = '${pluginName.toLowerCase()}';
-
-    $this->load_dependencies();
-    $this->set_locale();
-    $this->define_admin_hooks();
-    $this->define_public_hooks();
+    
+    // For simplicity, we'll just mark files as changed if they exist in the new structure
+    // In a real implementation, you would do a more detailed diff analysis
+    const oldStructure = getFileStructureMap(fileStructure)
+    const tempStructure: FileStructure[] = []
+    createTempFileStructure(newCode, tempStructure)
+    const newStructure = getFileStructureMap(tempStructure)
+    
+    // Find new or modified files
+    Object.keys(newStructure).forEach(path => {
+      if (!oldStructure[path]) {
+        // New file
+        const lineCount = newStructure[path].content?.split('\n').length || 0
+        newChanges[path] = { added: lineCount, deleted: 0 }
+      } else if (oldStructure[path].content !== newStructure[path].content) {
+        // Modified file
+        const oldLineCount = oldStructure[path].content?.split('\n').length || 0
+        const newLineCount = newStructure[path].content?.split('\n').length || 0
+        const lineDiff = newLineCount - oldLineCount
+        
+        newChanges[path] = {
+          added: lineDiff > 0 ? lineDiff : 0,
+          deleted: lineDiff < 0 ? Math.abs(lineDiff) : 0
+        }
+      }
+    })
+    
+    // Find deleted files
+    Object.keys(oldStructure).forEach(path => {
+      if (!newStructure[path]) {
+        const lineCount = oldStructure[path].content?.split('\n').length || 0
+        newChanges[path] = { added: 0, deleted: lineCount }
+      }
+    })
+    
+    setUpdatedFiles(newChanges)
   }
+  
+  // Helper function to create a temporary file structure without updating state
+  const createTempFileStructure = (code: string, files: FileStructure[]) => {
+    const mainFile: FileStructure = {
+      name: `${pluginName}.php`,
+      type: "file",
+      content: code,
+    }
+    files.push(mainFile)
 
-  private function load_dependencies() {
-    require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-${pluginName.toLowerCase()}-loader.php';
-    require_once plugin_dir_path(dirname(__FILE__)) . 'includes/class-${pluginName.toLowerCase()}-i18n.php';
-    require_once plugin_dir_path(dirname(__FILE__)) . 'admin/class-${pluginName.toLowerCase()}-admin.php';
-    require_once plugin_dir_path(dirname(__FILE__)) . 'public/class-${pluginName.toLowerCase()}-public.php';
+    // Extract includes and requires
+    const includeRegex = /(?:include|require|include_once|require_once)\s*\(\s*(?:plugin_dir_path\s*\(\s*__FILE__\s*\)\s*\.\s*['"](.+?)['"]|['"](.+?)['"])\s*\)/g
+    let match
+    while ((match = includeRegex.exec(code)) !== null) {
+      const includePath = match[1] || match[2]
+      if (includePath) {
+        addFileToStructure(files, includePath, "")
+      }
+    }
 
-    $this->loader = new ${pluginName}_Loader();
+    // Extract class definitions and create files for them
+    const classRegex = /class\s+(\w+)/g
+    while ((match = classRegex.exec(code)) !== null) {
+      const className = match[1]
+      if (className && className !== "WP") {
+        // Skip WordPress core classes
+        const classCode = extractClassCode(code, className)
+        if (classCode) {
+          const filePath = `includes/class-${className.toLowerCase()}.php`
+          addFileToStructure(files, filePath, classCode)
+        }
+      }
+    }
   }
-
-  private function set_locale() {
-    $plugin_i18n = new ${pluginName}_i18n();
-    $this->loader->add_action('plugins_loaded', $plugin_i18n, 'load_plugin_textdomain');
-  }
-
-  private function define_admin_hooks() {
-    $plugin_admin = new ${pluginName}_Admin($this->get_plugin_name(), $this->get_version());
-    $this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_styles');
-    $this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_scripts');
-  }
-
-  private function define_public_hooks() {
-    $plugin_public = new ${pluginName}_Public($this->get_plugin_name(), $this->get_version());
-    $this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_styles');
-    $this->loader->add_action('wp_enqueue_scripts', $plugin_public, 'enqueue_scripts');
-  }
-
-  public function run() {
-    $this->loader->run();
-  }
-
-  public function get_plugin_name() {
-    return $this->plugin_name;
-  }
-
-  public function get_loader() {
-    return $this->loader;
-  }
-
-  public function get_version() {
-    return $this->version;
-  }
-}`
-  }
-
-  const generateLicenseContent = () => {
-    return `                    GNU GENERAL PUBLIC LICENSE
-                       Version 2, June 1991
-
- Copyright (C) 1989, 1991 Free Software Foundation, Inc.,
- 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
- Everyone is permitted to copy and distribute verbatim copies
- of this license document, but changing it is not allowed.`
-  }
-
-  const generateReadmeContent = (pluginName: string) => {
-    return `=== ${pluginName} ===
-Contributors: (this should be a list of wordpress.org userid's)
-Tags: comments, spam
-Requires at least: 6.0
-Tested up to: 6.4
-Stable tag: 1.0.0
-License: GPLv2 or later
-License URI: http://www.gnu.org/licenses/gpl-2.0.html
-
-Here is a short description of the plugin.
-
-== Description ==
-
-This is the long description. No limit, and you can use Markdown (as well as in the following sections).
-
-== Installation ==
-
-1. Upload \`${pluginName}\` to the \`/wp-content/plugins/\` directory
-2. Activate the plugin through the 'Plugins' menu in WordPress
-
-== Changelog ==
-
-= 1.0 =
-* Initial release`
-  }
-
-  const generateUninstallContent = () => {
-    return `<?php
-// If uninstall not called from WordPress, then exit.
-if (!defined('WP_UNINSTALL_PLUGIN')) {
-    exit;
-}`
+  
+  // Helper function to convert file structure to a map for easier comparison
+  const getFileStructureMap = (structure: FileStructure[]): Record<string, FileStructure> => {
+    const map: Record<string, FileStructure> = {}
+    
+    const processItem = (item: FileStructure, path: string = '') => {
+      const fullPath = path ? `${path}/${item.name}` : item.name
+      
+      if (item.type === 'file') {
+        map[fullPath] = { ...item }
+      }
+      
+      if (item.type === 'folder' && item.children) {
+        item.children.forEach(child => processItem(child, fullPath))
+      }
+    }
+    
+    structure.forEach(item => processItem(item))
+    return map
   }
 
   const handlePreview = async () => {
@@ -1557,10 +1011,9 @@ Plugin name: ${pluginDetails?.name || pluginName}`,
                 } catch (e) {
                   throw new Error('Error in stream: ' + e);
                 }
+              } else if (line.startsWith('event: end')) {
+                setIsStreaming(false);
               }
-            } else if (line.startsWith('event: end')) {
-              setIsStreaming(false);
-            }
           }
         }
       } else {
@@ -1667,8 +1120,7 @@ Plugin name: ${pluginDetails?.name || pluginName}`,
       // Set the selected file to the main plugin file
       setSelectedFile(`${state.name}/${state.name}.php`)
       
-      // After successfully loading a plugin, set generatedPlugin to true
-      setGeneratedPlugin(true)
+    setError(null)
     } catch (err) {
       console.error('Error loading plugin state:', err)
       setError('Failed to load plugin state file')
@@ -1862,7 +1314,7 @@ Your response must include:
   // Add new function to distribute code updates
   const distributeCodeUpdates = (code: string) => {
     if (!pluginDetails || pluginDetails.structure !== "traditional") {
-      return cleanAndFormatCode(code)
+      return code
     }
 
     const pluginName = pluginDetails.name
@@ -1885,16 +1337,16 @@ Your response must include:
 
     // Update admin class file
     const adminClassPath = `${pluginName}/admin/class-admin.php`
-    const adminClassContent = cleanAndFormatCode(generateAdminClass(pluginName))
+    const adminClassContent = generateAdminClass(pluginName)
     setFileContent(adminClassPath, adminClassContent)
 
     // Update public class file
     const publicClassPath = `${pluginName}/public/class-public.php`
-    const publicClassContent = cleanAndFormatCode(generatePublicClass(pluginName))
+    const publicClassContent = generatePublicClass(pluginName)
     setFileContent(publicClassPath, publicClassContent)
 
     // Generate main plugin file
-    return cleanAndFormatCode(generateMainPluginFile(pluginHeader, customFunctions, pluginName))
+    return generateMainPluginFile(pluginHeader, customFunctions, pluginName)
   }
 
   // Add helper function to extract functions by prefix
@@ -1921,289 +1373,81 @@ Your response must include:
     setFileStructure(prev => findAndUpdateFile(prev))
   }
 
-  // Function to handle viewing file changes
-  const handleViewFileChanges = (filePath: string) => {
-    setSelectedFileForDiff(filePath)
-    setShowDiffModal(true)
-  }
-
-  // Function to handle viewing version changes
-  const handleViewVersionChanges = (versionId: string) => {
-    setSelectedVersionForDiff(versionId)
-    setShowDiffModal(true)
-  }
-
-  // Get the current version's file changes
-  const currentVersionFileChanges = currentVersionIndex >= 0 && codeVersions.length > 0
-    ? codeVersions[currentVersionIndex]?.fileChanges || []
-    : []
-
-  // Calculate changes between current and previous version for display in file explorer
-  const displayFileChanges = useMemo(() => {
-    // If we're at the first version or have no versions, there are no changes to display
-    if (currentVersionIndex <= 0 || codeVersions.length <= 1) {
-      return [];
-    }
-    
-    // Get changes from the current version
-    return codeVersions[currentVersionIndex]?.fileChanges || [];
-  }, [currentVersionIndex, codeVersions]);
-
-  // Get the selected version for diff
-  const selectedVersion = useMemo(() => {
-    if (!selectedVersionForDiff) {
-      return currentVersionIndex >= 0 && codeVersions.length > 0
-        ? codeVersions[currentVersionIndex]
-        : null
-    }
-    return codeVersions.find(v => v.id === selectedVersionForDiff) || null
-  }, [codeVersions, currentVersionIndex, selectedVersionForDiff])
-
   // Add effect to load chat history from localStorage on mount
   useEffect(() => {
-    // Auto-clear localStorage on page load
-    console.log("Auto-clearing localStorage on page refresh");
-    localStorage.clear();
-    
-    // Skip loading from localStorage since we just cleared it
-    return;
-    
-    // The code below will not execute due to the return statement above
-    // Keeping it for reference in case we need to revert this change
-    
-    // Check for force_new_session parameter in URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const forceNewSession = urlParams.get('force_new_session') === 'true';
-    
-    // Clear all localStorage if force_new_session is true
-    if (forceNewSession) {
-      console.log("Forcing new session, clearing localStorage");
-      localStorage.clear();
-      // Redirect to clean URL without the parameter
-      window.history.replaceState({}, document.title, window.location.pathname);
-      return; // Skip loading from localStorage
-    }
-    
-    // Load saved state from localStorage
-    const savedMessages = localStorage.getItem('messages')
-    const savedCodeVersions = localStorage.getItem('codeVersions')
-    const savedPluginDetails = localStorage.getItem('pluginDetails')
-    const savedGeneratedCode = localStorage.getItem('generatedCode')
+    const savedMessages = localStorage.getItem("chatHistory")
+    const savedCodeVersions = localStorage.getItem("codeVersions")
+    const savedPluginDetails = localStorage.getItem("pluginDetails")
+    const savedGeneratedCode = localStorage.getItem("generatedCode")
     
     if (savedMessages) {
-      try {
-        setMessages(JSON.parse(savedMessages as string))
-      } catch (e) {
-        console.error("Error parsing saved messages:", e)
-      }
+      setMessages(JSON.parse(savedMessages))
     }
-    
     if (savedCodeVersions) {
-      try {
-        const parsedVersions = JSON.parse(savedCodeVersions as string)
-        setCodeVersions(parsedVersions)
-        setCurrentVersionIndex(parsedVersions.length - 1)
-      } catch (e) {
-        console.error("Error parsing saved code versions:", e)
-      }
+      setCodeVersions(JSON.parse(savedCodeVersions))
     }
-    
     if (savedPluginDetails) {
-      try {
-        const details = JSON.parse(savedPluginDetails as string)
-        setPluginDetails(details)
-        setPluginName(details.name)
-      } catch (e) {
-        console.error("Error parsing saved plugin details:", e)
-      }
+      setPluginDetails(JSON.parse(savedPluginDetails))
     }
-    
     if (savedGeneratedCode) {
-      try {
-        setGeneratedCode(savedGeneratedCode as string)
-        
-        // Create file structure from the saved code
-        try {
-          createFileStructure(savedGeneratedCode as string)
-        } catch (err) {
-          console.error("Error creating file structure:", err)
-        }
-      } catch (e) {
-        console.error("Error setting saved generated code:", e)
-      }
+      setGeneratedCode(savedGeneratedCode)
     }
   }, [])
 
   // Add effect to save chat history to localStorage when it changes
   useEffect(() => {
-    // Skip the first render to prevent overriding localStorage values during initialization
-    if (isInitialRender.current) {
-      isInitialRender.current = false
-      return
-    }
-    
-    if (messages.length > 0) {
-      localStorage.setItem("chatHistory", JSON.stringify(messages))
-    }
-    
-    if (codeVersions.length > 0) {
-      localStorage.setItem("codeVersions", JSON.stringify(codeVersions))
-    }
-    
+    localStorage.setItem("chatHistory", JSON.stringify(messages))
+    localStorage.setItem("codeVersions", JSON.stringify(codeVersions))
     if (pluginDetails) {
       localStorage.setItem("pluginDetails", JSON.stringify(pluginDetails))
     }
-    
     if (generatedCode) {
       localStorage.setItem("generatedCode", generatedCode)
     }
-    
-    // Log the current state before saving to localStorage
-    console.log("Saving generatedPlugin to localStorage:", generatedPlugin)
-    localStorage.setItem("generatedPlugin", String(generatedPlugin))
-  }, [messages, codeVersions, pluginDetails, generatedCode, generatedPlugin])
-
-  // Add a new useEffect specifically for initializing generatedPlugin from localStorage
-  useEffect(() => {
-    // This will only run on the client after hydration is complete
-    try {
-      const savedValue = localStorage.getItem("generatedPlugin")
-      console.log("Initial generatedPlugin value from localStorage:", savedValue)
-      if (savedValue === "true") {
-        setGeneratedPlugin(true)
-      } else {
-        // Explicitly set to false if not "true" to ensure button visibility
-        setGeneratedPlugin(false)
-        // Clear any potentially corrupted value
-        localStorage.removeItem("generatedPlugin")
-      }
-    } catch (e) {
-      console.error("Error reading generatedPlugin from localStorage:", e)
-      // Ensure generatedPlugin is false if there's an error
-      setGeneratedPlugin(false)
-    }
-  }, []) // Empty dependency array means this runs once after mount
-
-  // Add event listener for the CONTINUE button in the plugin details modal
-  useEffect(() => {
-    // Function to handle clicks on the CONTINUE button
-    const handleContinueButtonClick = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      
-      // Check if the clicked element or any of its parents has the continue-generate-plugin-button class
-      if (target.closest('.continue-generate-plugin-button')) {
-        console.log('CONTINUE button clicked, will generate plugin');
-        // Add a small delay to ensure the modal state is updated first
-        setTimeout(() => {
-          if (hasFilledDetails) {
-            console.log('Generating plugin after CONTINUE button click');
-            generateCode();
-          }
-        }, 100);
-      }
-    };
-
-    // Add the event listener to the document
-    document.addEventListener('click', handleContinueButtonClick, true);
-
-    // Clean up the event listener when the component unmounts
-    return () => {
-      document.removeEventListener('click', handleContinueButtonClick, true);
-    };
-  }, [hasFilledDetails, generateCode]);
-
-  // Update the setSelectedFile function to handle null values
-  const handleFileSelect = (path: string) => {
-    setSelectedFile(path)
-  }
+  }, [messages, codeVersions, pluginDetails, generatedCode])
 
   return (
     <div className="flex flex-col h-screen">
-      <div className="flex justify-between items-center p-4 flex-shrink-0">
-        <h1 className="text-2xl font-bold">WordPress Plugin Generator</h1>
-        <Button
-          onClick={() => {
-            // Clear localStorage and reload with force_new_session parameter
-            localStorage.clear();
-            window.location.href = window.location.pathname + '?force_new_session=true';
-          }}
-          variant="outline"
-          size="sm"
-        >
-          New Session
-        </Button>
-      </div>
+      <h1 className="text-2xl font-bold p-4 border-b flex-shrink-0">WordPress Plugin Generator</h1>
       <div className="flex flex-1 min-h-0">
         {/* Left Column - Chat Interface (40%) */}
         <div className="w-[40%] flex flex-col min-h-0 border-r">
-          <div className="p-4 flex-shrink-0">
+          <div className="p-4 border-b flex-shrink-0">
             <div className="mb-4">
               <ModelSelector selectedModel={selectedModel} onModelChange={setSelectedModel} />
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {/* EDIT DETAILS Button - Only show after plugin generation */}
-              {hasFilledDetails && generatedPlugin && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        onClick={() => setShowPluginDetailsModal(true)}
-                        variant="outline"
-                        size="sm"
-                      >
-                        <Settings2 className="h-4 w-4 mr-1" />
-                        Edit Details
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Edit plugin details</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-
-              {/* START/GENERATE Button - Only show before plugin generation */}
-              {!generatedPlugin && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        onClick={() => {
-                          if (!description && attachedFiles.length === 0) {
-                            setShowValidationModal(true)
-                          } else if (hasFilledDetails) {
-                            // If details are already filled, call generateCode directly
-                            generateCode();
-                          } else {
-                            setShowPluginDetailsModal(true)
-                          }
-                        }}
-                        disabled={loading || isCreatingPreview}
-                        className={
-                          !description && attachedFiles.length === 0
-                            ? "bg-purple-200 hover:bg-purple-300 text-purple-800"
-                            : "bg-purple-600 hover:bg-purple-700 text-white"
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      onClick={() => {
+                        if (!hasFilledDetails) {
+                          setShowPluginDetailsModal(true)
+                        } else {
+                          generateCode()
                         }
-                      >
-                        {loading ? (
-                          <>
-                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                          </>
-                        ) : (
-                          hasFilledDetails ? "Generate" : "Start"
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>
-                        {!description && attachedFiles.length === 0
-                          ? "Please add a description or attach files first"
-                          : "Generate your WordPress plugin"}
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
+                      }}
+                      disabled={loading || isCreatingPreview}
+                      className={hasFilledDetails ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "bg-black hover:bg-gray-800 text-white"}
+                    >
+                      {loading ? (
+                        <>
+                          <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                          Generating...
+                        </>
+                      ) : hasFilledDetails ? (
+                        "Generate Plugin"
+                      ) : (
+                        "Start"
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Generate a new WordPress plugin based on your description</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
 
               <input
                 type="file"
@@ -2281,85 +1525,97 @@ Your response must include:
             <PluginDiscussion
               messages={messages}
               onSendMessage={handleSendMessage}
+              onCodeUpdate={handleCodeUpdate}
               className="h-full"
               selectedModel={selectedModel}
               revertBySteps={revertBySteps}
               revertToVersion={revertToVersion}
-              codeVersions={codeVersions}
-              onCodeUpdate={handleCodeUpdate}
+              codeVersions={codeVersions.map(v => ({ id: v.id, version: v.version, timestamp: v.timestamp }))}
               initialDescription={description}
               onInitialDescriptionChange={setDescription}
-              onFilesSelected={(files: ProcessedFile[]) => setAttachedFiles(files)}
+              onFilesSelected={setAttachedFiles}
             />
           </div>
         </div>
 
-        {/* Center Column - File Explorer (15%) */}
-        <div className="w-[15%] border-r flex flex-col min-h-0 bg-gray-50">
+        {/* Center Column - File Explorer (20%) */}
+        <div className="w-[20%] border-r flex flex-col min-h-0">
           <div className="p-2 border-b flex-shrink-0">
             <h2 className="text-sm font-semibold">Files</h2>
-            {codeVersions.length > 0 && (
-              <div className="flex items-center gap-2">
-                <div className="flex items-center">
-                  <span className="text-xs mr-2">Version:</span>
-                  <Select
-                    value={currentVersionIndex.toString()}
-                    onValueChange={(value) => {
-                      const index = parseInt(value)
-                      setCurrentVersionIndex(index)
-                      setGeneratedCode(codeVersions[index].code)
-                      createFileStructure(codeVersions[index].code)
-                    }}
-                  >
-                    <SelectTrigger className="h-8 w-[108px] text-xs bg-white">
-                      <SelectValue placeholder="Select version" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-white">
-                      {codeVersions.map((version, index) => (
-                        <SelectItem key={version.id} value={index.toString()} className="text-xs">
-                          {version.version}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                {/* Changes button */}
-                {currentVersionIndex > 0 && (
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="text-xs flex items-center gap-1"
-                    onClick={() => {
-                      if (currentVersionIndex > 0 && codeVersions[currentVersionIndex]) {
-                        handleViewVersionChanges(codeVersions[currentVersionIndex].id);
-                      }
-                    }}
-                  >
-                    <Eye className="h-3.5 w-3.5 mr-1" />
-                    Changes
-                  </Button>
-                )}
-              </div>
-            )}
           </div>
           <div className="flex-1 overflow-auto">
             <FileExplorer
               files={fileStructure}
               selectedFile={selectedFile}
-              onSelectFile={handleFileSelect}
-              fileChanges={displayFileChanges}
-              onViewChanges={handleViewFileChanges}
+              onSelectFile={setSelectedFile}
+              updatedFiles={updatedFiles}
             />
           </div>
+          {codeVersions.length > 0 && (
+            <div className="p-2 border-t">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium">Version:</span>
+                <Select
+                  value={currentVersionIndex.toString()}
+                  onValueChange={(value) => {
+                    const version = codeVersions[parseInt(value)]
+                    if (version) {
+                      revertToVersion(version.id)
+                    }
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Select version" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {codeVersions.map((version, index) => (
+                      <SelectItem key={version.id} value={index.toString()}>
+                        {version.version} ({new Date(version.timestamp).toLocaleString()})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Right Column - Code Display (45%) */}
-        <div className="w-[45%] flex flex-col min-h-0">
+        {/* Right Column - Code Display (40%) */}
+        <div className="w-[40%] flex flex-col min-h-0">
           <div className="p-2 border-b flex-shrink-0 flex justify-between items-center">
             <h2 className="text-sm font-semibold">
               {selectedFile ? selectedFile : "Code"}
             </h2>
+            {selectedFile && (
+              <div className="flex gap-2">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button onClick={handlePreview} variant="outline" size="sm" disabled={!generatedCode || isCreatingPreview}>
+                        <Eye className="h-4 w-4 mr-1" />
+                        Preview
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Preview your plugin in a WordPress environment</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button onClick={() => setShowRevisionModal(true)} variant="outline" size="sm" disabled={!generatedCode}>
+                        <Wand2 className="h-4 w-4 mr-1" />
+                        Revise
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Request specific changes to your plugin</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            )}
           </div>
           <div className="flex-1 min-h-0">
             <CodeEditor
@@ -2397,15 +1653,11 @@ Your response must include:
         isOpen={showPluginDetailsModal}
         onClose={() => setShowPluginDetailsModal(false)}
         onSubmit={(details) => {
-          // Set plugin details and hasFilledDetails
-          setPluginDetails(details);
-          setPluginName(details.name);
-          setHasFilledDetails(true);
-          setShowPluginDetailsModal(false);
-          
-          // Always call generateCode immediately after clicking CONTINUE
-          // The generateCode function has its own validation for description/files
-          generateCode();
+          setPluginDetails(details)
+          setPluginName(details.name)
+          setHasFilledDetails(true)
+          setShowPluginDetailsModal(false)
+          generateCode()
         }}
       />
 
@@ -2422,43 +1674,10 @@ Your response must include:
         previewUrl={previewUrl}
       />
 
-      <Dialog open={showValidationModal} onOpenChange={setShowValidationModal}>
-        <DialogContent className="bg-white">
-          <DialogHeader className="text-center">
-            <DialogTitle className="text-xl text-center">Action Required</DialogTitle>
-            <DialogDescription className="text-center mt-2">
-              Please describe your plugin or provide an attachment so we know what to build.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-center mt-4">
-            <Button 
-              onClick={() => setShowValidationModal(false)} 
-              className="bg-black hover:bg-gray-800 text-white"
-            >
-              I understand
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       {error && (
         <div className="fixed bottom-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
           {error}
         </div>
-      )}
-
-      {showDiffModal && selectedVersion && (
-        <DiffViewModal
-          isOpen={showDiffModal}
-          onClose={() => {
-            setShowDiffModal(false)
-            setSelectedVersionForDiff(null)
-            setSelectedFileForDiff(null)
-          }}
-          fileChanges={selectedVersion.fileChanges || []}
-          versionDescription={selectedVersion.description}
-          versionNumber={selectedVersion.version}
-        />
       )}
     </div>
   )

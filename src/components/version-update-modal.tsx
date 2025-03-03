@@ -64,7 +64,12 @@ export function VersionUpdateModal({ isOpen, onClose, onSubmit, currentVersion }
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit}>Update Version</Button>
+          <Button 
+            onClick={handleSubmit} 
+            className="bg-purple-600 text-white hover:bg-purple-700"
+          >
+            Update Version
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

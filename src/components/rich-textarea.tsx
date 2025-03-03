@@ -44,7 +44,7 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!isSubmitting && onSubmit && value.trim()) {
+      if (!isSubmitting && onSubmit && (value.trim() || attachments.length > 0)) {
         onSubmit();
       }
     }
@@ -80,12 +80,22 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
 
   const handleFilesSelected = async (file: File) => {
     try {
+      setIsProcessing(true)
+      console.log("Processing file:", file.name, file.type)
+      
       const processed = await processFile(file)
-      if (processed.metadata) {
-        onFilesSelected([processed as ProcessedFile])
-      }
+      console.log("Processed file:", processed)
+      
+      // Add to attachments
+      const processedFile = Object.assign(file, processed) as ProcessedFile
+      setAttachments(prev => [...prev, processedFile])
+      
+      // Notify parent
+      onFilesSelected?.([...attachments, processedFile])
     } catch (error) {
       console.error('Error processing file:', error)
+    } finally {
+      setIsProcessing(false)
     }
   }
 
@@ -105,12 +115,16 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
   const handleDrop = async (event: React.DragEvent<HTMLTextAreaElement>) => {
     event.preventDefault()
     const files = Array.from(event.dataTransfer.files)
-    await handleFilesSelected(files[0])
+    if (files.length > 0) {
+      await handleFilesSelected(files[0])
+    }
   }
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || [])
-    await handleFilesSelected(files[0])
+    if (files.length > 0) {
+      await handleFilesSelected(files[0])
+    }
   }
 
   const removeAttachment = (index: number) => {
@@ -118,33 +132,62 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
     if (file.imageUrl) {
       URL.revokeObjectURL(file.imageUrl)
     }
-    setAttachments((prev) => prev.filter((_, i) => i !== index))
+    
+    const newAttachments = attachments.filter((_, i) => i !== index)
+    setAttachments(newAttachments)
+    onFilesSelected?.(newAttachments)
+    
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
     }
   }
 
   const getFileIcon = (file: File) => {
-    const type = file.type.toLowerCase()
-    if (type.startsWith("image/")) return <ImageIcon className="h-4 w-4 text-blue-500" />
-    if (type === "application/pdf") return <FileText className="h-4 w-4 text-red-500" />
-    if (type.includes("word") || type.includes("officedocument")) return <FileText className="h-4 w-4 text-blue-600" />
-    if (type.includes("excel") || type.includes("spreadsheet")) return <FileText className="h-4 w-4 text-green-600" />
-    if (type === "text/plain" || file.name.toLowerCase().endsWith('.txt')) return <FileText className="h-4 w-4 text-gray-600" />
+    const type = file.type || ''
+    const extension = file.name.split('.').pop()?.toLowerCase() || ''
+    
+    if (type.startsWith("image/") || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(extension)) {
+      return <ImageIcon className="h-4 w-4 text-blue-500" />
+    }
+    if (type === "application/pdf" || extension === 'pdf') {
+      return <FileText className="h-4 w-4 text-red-500" />
+    }
+    if (type.includes("word") || type.includes("officedocument") || ['doc', 'docx'].includes(extension)) {
+      return <FileText className="h-4 w-4 text-blue-600" />
+    }
+    if (type.includes("excel") || type.includes("spreadsheet") || ['xls', 'xlsx'].includes(extension)) {
+      return <FileText className="h-4 w-4 text-green-600" />
+    }
+    if (type === "text/plain" || extension === 'txt') {
+      return <FileText className="h-4 w-4 text-gray-600" />
+    }
     return <File className="h-4 w-4 text-gray-500" />
   }
 
   const getFileLabel = (file: File) => {
-    const type = file.type.toLowerCase()
-    if (type.includes("word") || type.includes("officedocument.wordprocessing")) return "Word Document"
-    if (type.includes("excel") || type.includes("spreadsheet")) return "Spreadsheet"
-    if (type === "application/pdf") return "PDF Document"
-    if (type === "text/plain") return "Text Document"
-    return file.type || "Unknown Type"
+    const type = file.type || ''
+    const extension = file.name.split('.').pop()?.toLowerCase() || ''
+    
+    if (type.includes("word") || type.includes("officedocument.wordprocessing") || ['doc', 'docx'].includes(extension)) {
+      return "Word Document"
+    }
+    if (type.includes("excel") || type.includes("spreadsheet") || ['xls', 'xlsx'].includes(extension)) {
+      return "Spreadsheet"
+    }
+    if (type === "application/pdf" || extension === 'pdf') {
+      return "PDF Document"
+    }
+    if (type === "text/plain" || extension === 'txt') {
+      return "Text Document"
+    }
+    if (type.startsWith("image/") || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(extension)) {
+      return "Image"
+    }
+    return type || "Unknown Type"
   }
 
   return (
-    <div className="space-y-2 w-full">
+    <div className="plugin-discussion-input-wrapper">
       <div className="relative">
         <Textarea
           ref={textareaRef}
@@ -159,7 +202,6 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
             "resize-none overflow-hidden font-mono text-sm w-full",
             "min-h-[100px] bg-background border rounded-md",
             "pr-20",
-            "idm2-discussion-input",
             className
           )}
         />
@@ -171,7 +213,7 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-6 w-6 p-0 hover:bg-emerald-100"
+                  className="h-6 w-6 p-0 hover:bg-purple-50"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isProcessing}
                 >
@@ -190,12 +232,17 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-6 w-6 p-0 text-emerald-600 hover:bg-emerald-100"
+                  className={cn(
+                    "h-6 w-6 p-0",
+                    isSubmitting || isProcessing || (!value.trim() && attachments.length === 0)
+                      ? "text-purple-200 hover:bg-purple-50"
+                      : "text-purple-600 hover:bg-purple-50"
+                  )}
                   onClick={() => onSubmit?.()}
-                  disabled={isSubmitting || isProcessing || !value.trim()}
+                  disabled={isSubmitting || isProcessing || (!value.trim() && attachments.length === 0)}
                 >
                   {isSubmitting ? (
-                    <div className="animate-spin h-4 w-4 border-2 border-emerald-600 border-t-transparent rounded-full" />
+                    <div className="animate-spin h-4 w-4 border-2 border-purple-600 border-t-transparent rounded-full" />
                   ) : (
                     <Send className="h-4 w-4" />
                   )}
@@ -223,7 +270,7 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
               key={index}
               className="group relative flex items-center gap-2 bg-secondary/50 hover:bg-secondary/70 transition-colors rounded-lg px-3 py-1.5"
             >
-              {file.type.startsWith("image/") && file.imageUrl ? (
+              {file.imageUrl && (file.type?.startsWith("image/") || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(file.name.split('.').pop()?.toLowerCase() || '')) ? (
                 <div className="relative">
                   <img
                     src={file.imageUrl}
@@ -280,7 +327,6 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
         type="file"
         className="hidden"
         onChange={handleFileSelect}
-        multiple
         accept="image/*,.pdf,.doc,.docx,.txt,.xls,.xlsx"
       />
     </div>

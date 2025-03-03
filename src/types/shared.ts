@@ -55,6 +55,15 @@ export interface CodeVersion {
   code: string
   description: string
   timestamp: string
+  fileChanges?: FileChange[]
+}
+
+export interface FileChange {
+  path: string
+  added: number
+  deleted: number
+  content: string
+  previousContent?: string
 }
 
 export interface ProcessedFile extends File {

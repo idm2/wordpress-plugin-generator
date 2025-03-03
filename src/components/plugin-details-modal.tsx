@@ -40,14 +40,6 @@ export function PluginDetailsModal({ isOpen, onClose, onSubmit }: PluginDetailsM
     
     setIsSubmitting(true)
     onSubmit(details)
-    setDetails({
-      name: '',
-      uri: '',
-      description: '',
-      version: '1.0.0',
-      author: '',
-      structure: 'simplified'
-    })
     onClose()
     setIsSubmitting(false)
   }
@@ -57,14 +49,6 @@ export function PluginDetailsModal({ isOpen, onClose, onSubmit }: PluginDetailsM
       open={isOpen} 
       onOpenChange={(open) => {
         if (!open && !isSubmitting) {
-          setDetails({
-            name: '',
-            uri: '',
-            description: '',
-            version: '1.0.0',
-            author: '',
-            structure: 'simplified'
-          })
           onClose()
         }
       }}
@@ -154,7 +138,7 @@ export function PluginDetailsModal({ isOpen, onClose, onSubmit }: PluginDetailsM
             <Button 
               type="submit" 
               disabled={isSubmitting}
-              className="bg-black text-white hover:bg-black/90"
+              className="bg-black text-white hover:bg-black/90 continue-generate-plugin-button"
             >
               {isSubmitting ? 'Processing...' : 'Continue'}
             </Button>

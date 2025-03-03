@@ -41,6 +41,7 @@
     "ai": "^4.1.45",
     "class-variance-authority": "^0.6.0",
     "clsx": "^1.2.1",
+    "encoding": "^0.1.13",
     "jszip": "^3.10.1",
     "lucide-react": "^0.244.0",
     "mammoth": "^1.6.0",

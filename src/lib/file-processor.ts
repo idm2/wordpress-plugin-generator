@@ -153,11 +153,12 @@ async function readTextContent(file: File): Promise<{ content: string; summary: 
 }
 
 export async function processFile(file: File): Promise<ProcessedFile> {
-  const type = file.type.toLowerCase()
-  const extension = file.name.split('.').pop()?.toLowerCase() || ''
+  // Safely get file type and extension
+  const fileType = file.type || '';
+  const extension = file.name.split('.').pop()?.toLowerCase() || '';
   
   const metadata = {
-    type: file.type,
+    type: fileType,
     size: file.size,
     lastModified: file.lastModified,
     name: file.name,
@@ -166,7 +167,7 @@ export async function processFile(file: File): Promise<ProcessedFile> {
 
   try {
     // Handle text-based documents
-    if (type === "text/plain" || extension === 'txt' || !type) {
+    if (fileType === "text/plain" || extension === 'txt' || !fileType) {
       const { content, summary } = await readTextContent(file)
       return {
         metadata: { ...metadata, content, summary }
@@ -174,8 +175,8 @@ export async function processFile(file: File): Promise<ProcessedFile> {
     }
     // Handle Word documents
     else if (
-      type.includes("word") || 
-      type.includes("officedocument.wordprocessing") ||
+      fileType.includes("word") || 
+      fileType.includes("officedocument.wordprocessing") ||
       extension === 'doc' ||
       extension === 'docx'
     ) {
@@ -186,7 +187,7 @@ export async function processFile(file: File): Promise<ProcessedFile> {
       }
     }
     // Handle PDF files
-    else if (type === "application/pdf" || extension === 'pdf') {
+    else if (fileType === "application/pdf" || extension === 'pdf') {
       console.log("Processing PDF document:", file.name)
       const { content, summary } = await readPdfContent(file)
       return {
@@ -195,8 +196,8 @@ export async function processFile(file: File): Promise<ProcessedFile> {
     }
     // Handle Excel files
     else if (
-      type.includes("excel") || 
-      type.includes("spreadsheet") || 
+      fileType.includes("excel") || 
+      fileType.includes("spreadsheet") || 
       extension === 'xlsx' || 
       extension === 'xls'
     ) {
@@ -207,35 +208,67 @@ export async function processFile(file: File): Promise<ProcessedFile> {
       }
     }
     // Handle images
-    else if (type.startsWith("image/")) {
+    else if (fileType.startsWith("image/") || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(extension)) {
       console.log("Processing image:", file.name)
-      const formData = new FormData()
-      formData.append("file", file)
-
+      
+      // Create image URL immediately
+      const imageUrl = URL.createObjectURL(file)
+      
       try {
+        const formData = new FormData()
+        formData.append("file", file)
+
         const response = await fetch("/api/generate/analyze-image", {
           method: "POST",
           body: formData,
         })
 
         if (!response.ok) {
-          throw new Error(`Failed to analyze image: ${response.statusText}`)
+          const errorText = await response.text()
+          let errorMessage = `Failed to analyze image: ${response.statusText}`
+          
+          try {
+            const errorData = JSON.parse(errorText)
+            errorMessage = errorData.error || errorMessage
+          } catch (e) {
+            // If JSON parsing fails, use the raw text
+            if (errorText) errorMessage = errorText
+          }
+          
+          console.error(errorMessage)
+          
+          // Return the image URL even if analysis fails
+          return {
+            imageUrl,
+            metadata: {
+              ...metadata,
+              content: `[Image: ${file.name}]`,
+              summary: "Image could not be analyzed"
+            }
+          }
         }
 
         const data = await response.json()
-        const imageUrl = URL.createObjectURL(file)
-
+        
         return {
           imageUrl,
           imageAnalysis: data.description,
-          metadata
+          metadata: {
+            ...metadata,
+            content: `[Image: ${file.name}]\n${data.description}`,
+            summary: `Image: ${data.description.substring(0, 100)}${data.description.length > 100 ? '...' : ''}`
+          }
         }
       } catch (error) {
         console.error("Error analyzing image:", error)
         // Return the image URL even if analysis fails
         return {
-          imageUrl: URL.createObjectURL(file),
-          metadata
+          imageUrl,
+          metadata: {
+            ...metadata,
+            content: `[Image: ${file.name}]`,
+            summary: "Image analysis failed"
+          }
         }
       }
     }
@@ -244,13 +277,20 @@ export async function processFile(file: File): Promise<ProcessedFile> {
     return {
       metadata: {
         ...metadata,
-        content: `File type ${type} (${extension}) is not supported for content extraction.`,
-        summary: undefined
+        content: `File type ${fileType} (${extension}) is not supported for content extraction.`,
+        summary: `Unsupported file: ${file.name}`
       }
     }
   } catch (error) {
     console.error("Error processing file:", error)
-    throw error
+    // Return a basic metadata object even if processing fails
+    return {
+      metadata: {
+        ...metadata,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        summary: `Error processing file: ${file.name}`
+      }
+    }
   }
 }
   
