@@ -1700,8 +1700,10 @@ Plugin name: ${pluginDetails?.name || pluginName}`,
   }
 
   const handleRevisionSubmit = async (description: string, files?: File[]) => {
+    console.log("Starting revision submission with description:", description);
     setRevisionDescription(description)
     if (files) {
+      console.log("Revision files:", files.map(f => f.name).join(", "));
       setRevisionFiles(files)
     }
 
@@ -1734,6 +1736,8 @@ Your response must include:
 2. How the new changes integrate with existing functionality
 3. The complete updated plugin code that includes both existing and new features`
 
+      console.log("Preparing revision request with current code length:", generatedCode.length);
+
       if (files && files.length > 0) {
         for (const file of files) {
           try {
@@ -1749,28 +1753,46 @@ Your response must include:
         }
       }
 
+      console.log("Generating AI response for revision...");
       const aiResponse = await generateAIResponse(fullRevisionRequest, generatedCode)
+      console.log("AI response received:", aiResponse ? "success" : "failed");
+      
       let explanation = ""
       let updatedCode = ""
 
       // Parse the AI response to separate explanation from code
       if (aiResponse.message) {
+        console.log("Parsing AI response message of length:", aiResponse.message.length);
         const parts = aiResponse.message.split("```")
         if (parts.length >= 3) {
           explanation = parts[0].trim()
           updatedCode = parts[1].replace(/^php\n/, '').trim()
+          console.log("Successfully extracted code from response, code length:", updatedCode.length);
         } else {
           explanation = "Changes applied as requested."
           updatedCode = aiResponse.codeUpdate || aiResponse.message
+          console.log("Using codeUpdate or full message as code, length:", updatedCode.length);
         }
       }
 
       if (updatedCode) {
+        console.log("Setting generated code and creating file structure...");
         setGeneratedCode(updatedCode)
         createFileStructure(updatedCode)
         
         // Add a new version for this revision
+        console.log("Adding new code version...");
         addCodeVersion(updatedCode, `${description}\n\nChanges made:\n${explanation}`)
+        
+        // Explicitly prompt for version update
+        console.log("Storing pending code update and showing version modal...");
+        setPendingCodeUpdate(updatedCode);
+        setShowVersionUpdateModal(true);
+      } else {
+        console.error("No updated code received from AI response");
+        setError("Failed to generate updated code. Please try again.");
+        setLoading(false);
+        return;
       }
 
       const newEntry: ChangelogEntry = {
@@ -1816,10 +1838,17 @@ Your response must include:
   }
 
   const handleVersionUpdateSubmit = (newVersion: string) => {
-    if (!pendingCodeUpdate) return;
+    console.log("Version update submitted with new version:", newVersion);
+    
+    if (!pendingCodeUpdate) {
+      console.error("No pending code update found when trying to update version");
+      setError("No pending code update found. Please try again.");
+      return;
+    }
     
     // Update plugin details with new version
     if (pluginDetails) {
+      console.log("Updating plugin details with new version:", newVersion);
       setPluginDetails({
         ...pluginDetails,
         version: newVersion
@@ -1827,16 +1856,19 @@ Your response must include:
     }
     
     // Update version in the plugin code header
+    console.log("Updating version in plugin code header");
     const updatedCode = pendingCodeUpdate.replace(
       /Version:\s*([0-9]+\.?)+/,
       `Version: ${newVersion}`
     )
     
     // Apply the code update
+    console.log("Applying code update, new code length:", updatedCode.length);
     setGeneratedCode(updatedCode)
     createFileStructure(updatedCode)
     
     // Add to version history
+    console.log("Adding to version history");
     addCodeVersion(updatedCode, 'AI suggested edit', newVersion)
     
     // Clear the pending update
@@ -1846,11 +1878,16 @@ Your response must include:
     setShowVersionUpdateModal(false)
     
     // Update messages to show the code was updated
+    console.log("Updating messages to show code was updated");
     setMessages(prev => prev.map(msg => 
       msg.type === 'assistant' && !msg.codeUpdate 
         ? { ...msg, codeUpdate: true }
         : msg
     ))
+    
+    // Force refresh the file structure display
+    console.log("Forcing refresh of file structure");
+    // No need to force refresh as createFileStructure already updates the state
   }
 
   const extractCustomFunctions = (code: string) => {
