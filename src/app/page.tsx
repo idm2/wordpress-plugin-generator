@@ -1998,18 +1998,22 @@ Your response must include:
 
   // Add effect to load chat history from localStorage on mount
   useEffect(() => {
-    // Check for force_new_session parameter in URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const forceNewSession = urlParams.get('force_new_session') === 'true';
+    // Always clear localStorage on page load for a fresh session
+    console.log("Starting fresh session, clearing localStorage");
+    localStorage.clear();
     
-    // Clear all localStorage if force_new_session is true
-    if (forceNewSession) {
-      console.log("Forcing new session, clearing localStorage");
-      localStorage.clear();
+    // Check for force_new_session parameter in URL and remove it if present
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('force_new_session')) {
       // Redirect to clean URL without the parameter
       window.history.replaceState({}, document.title, window.location.pathname);
-      return; // Skip loading from localStorage
     }
+    
+    // Skip loading from localStorage since we just cleared it
+    return;
+    
+    // The code below will not execute due to the return statement above
+    // Keeping it for reference in case we need to revert this change
     
     // Load saved state from localStorage
     const savedMessages = localStorage.getItem('messages')
