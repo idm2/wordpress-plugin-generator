@@ -1961,16 +1961,6 @@ Your response must include:
 
   // Add effect to load chat history from localStorage on mount
   useEffect(() => {
-    // Auto-clear localStorage on page load
-    console.log("Auto-clearing localStorage on page refresh");
-    localStorage.clear();
-    
-    // Skip loading from localStorage since we just cleared it
-    return;
-    
-    // The code below will not execute due to the return statement above
-    // Keeping it for reference in case we need to revert this change
-    
     // Check for force_new_session parameter in URL
     const urlParams = new URLSearchParams(window.location.search);
     const forceNewSession = urlParams.get('force_new_session') === 'true';
@@ -2043,7 +2033,7 @@ Your response must include:
     }
     
     if (messages.length > 0) {
-      localStorage.setItem("chatHistory", JSON.stringify(messages))
+      localStorage.setItem("messages", JSON.stringify(messages))
     }
     
     if (codeVersions.length > 0) {
