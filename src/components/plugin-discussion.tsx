@@ -158,7 +158,7 @@ export function PluginDiscussion({
                   <div
                     className={cn(
                       "plugin-discussion-message-content p-4 rounded-lg",
-                      message.type === "assistant" ? "bg-[rgb(230,238,251)]" : "bg-[#EDE9FE] text-gray-900",
+                      message.type === "assistant" ? "bg-[rgb(224,245,245)]" : "bg-[#EDE9FE] text-gray-900",
                     )}
                   >
                     <p className="leading-normal whitespace-pre-wrap">{message.content}</p>

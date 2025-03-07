@@ -72,7 +72,7 @@ export default function PluginGenerator() {
   const [isCodeSnippetModalOpen, setIsCodeSnippetModalOpen] = useState(false)
   const [showRevisionModal, setShowRevisionModal] = useState(false)
   const [isRevisionInputActive, setIsRevisionInputActive] = useState(false)
-  const [selectedModel, setSelectedModel] = useState<string>("openai")
+  const [selectedModel, setSelectedModel] = useState<string>("anthropic")
   const [messages, setMessages] = useState<Message[]>([])
   const [codeVersions, setCodeVersions] = useState<CodeVersion[]>([])
   const [currentVersionIndex, setCurrentVersionIndex] = useState<number>(-1)
@@ -2180,8 +2180,8 @@ Your response must include:
                         }}
                         disabled={loading || isCreatingPreview}
                         className={
-                          !description && attachedFiles.length === 0
-                            ? "bg-purple-200 hover:bg-purple-300 text-purple-800"
+                          !hasFilledDetails
+                            ? "bg-black hover:bg-black/90 text-white"
                             : "bg-purple-600 hover:bg-purple-700 text-white"
                         }
                       >
