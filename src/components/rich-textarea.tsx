@@ -67,6 +67,26 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
     }
   }, [clearAttachments, onFilesSelected, attachments])
 
+  // Watch for changes to the value prop
+  useEffect(() => {
+    console.log("RichTextarea: value prop changed to:", value);
+    // If the value is empty, clear the attachments
+    if (value === "") {
+      console.log("RichTextarea: value is empty, clearing attachments");
+      // Clear all object URLs before removing attachments
+      attachments.forEach((file) => {
+        if (file.imageUrl) {
+          URL.revokeObjectURL(file.imageUrl)
+        }
+      })
+      setAttachments([])
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ""
+      }
+      onFilesSelected?.([])
+    }
+  }, [value, onFilesSelected]);
+
   // Cleanup object URLs when component unmounts
   useEffect(() => {
     return () => {

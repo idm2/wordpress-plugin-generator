@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,23 +21,33 @@ interface PluginDetailsModalProps {
   isOpen: boolean
   onClose: () => void
   onSubmit: (details: PluginDetails) => void
+  initialDescription?: string
 }
 
-export function PluginDetailsModal({ isOpen, onClose, onSubmit }: PluginDetailsModalProps) {
-  const [details, setDetails] = useState<PluginDetails>({
+export function PluginDetailsModal({ isOpen, onClose, onSubmit, initialDescription = '' }: PluginDetailsModalProps) {
+  const [details, setDetails] = useState<PluginDetails>(() => ({
     name: '',
     uri: '',
-    description: '',
+    description: initialDescription,
     version: '1.0.0',
     author: '',
     structure: 'simplified'
-  })
+  }))
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // Update details.description when initialDescription changes
+  useEffect(() => {
+    console.log("PluginDetailsModal: initialDescription changed to:", initialDescription);
+    if (initialDescription) {
+      setDetails(prev => ({ ...prev, description: initialDescription }));
+    }
+  }, [initialDescription]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (isSubmitting) return
     
+    console.log("PluginDetailsModal: submitting details with description:", details.description);
     setIsSubmitting(true)
     onSubmit(details)
     onClose()

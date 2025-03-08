@@ -361,25 +361,32 @@ export default function PluginGenerator() {
     return false
   }
 
-  const generateCode = async () => {
-    if (!description && attachedFiles.length === 0) {
-      setShowValidationModal(true)
-      return
+  const generateCode = async (skipDescriptionValidation = false) => {
+    console.log("generateCode called, description:", description, "skipDescriptionValidation:", skipDescriptionValidation);
+    
+    // Check if description is empty and there are no attached files, but only if not skipping validation
+    if (!skipDescriptionValidation && !description.trim() && attachedFiles.length === 0) {
+      console.log("No description or attachments, showing validation modal");
+      setShowValidationModal(true);
+      return;
     }
 
     if (!hasFilledDetails) {
-      setShowPluginDetailsModal(true)
-      return
+      console.log("No plugin details, showing plugin details modal");
+      setShowPluginDetailsModal(true);
+      return;
     }
 
     if (!pluginDetails) {
-      setError("Please fill in plugin details first")
-      return
+      console.log("No plugin details object, showing error");
+      setError("Please fill in plugin details first");
+      return;
     }
 
-    setLoading(true)
-    setError(null)
-    setIsStreaming(false)
+    console.log("Starting code generation with description:", description);
+    setLoading(true);
+    setError(null);
+    setIsStreaming(false);
 
     try {
       let fullRequest = description
@@ -677,36 +684,80 @@ Functionality: ${fullRequest}`,
   }
 
   const parseAIResponse = (response: string): { message: string; codeUpdate?: string } => {
-    const codeBlockRegex = /```(?:php)?\s*([\s\S]*?)```/
-    const match = response.match(codeBlockRegex)
-
-    if (match) {
-      let code = match[1]
+    console.log("Parsing AI response:", response.substring(0, 100) + "...");
+    
+    // Check for code blocks with or without the php tag
+    const codeBlockRegex = /```(?:php)?\s*([\s\S]*?)```/g;
+    const matches = Array.from(response.matchAll(codeBlockRegex));
+    
+    if (matches.length > 0) {
+      console.log(`Found ${matches.length} code blocks in response`);
+      
+      // Use the largest code block (most likely the complete plugin)
+      let largestMatch = matches[0];
+      let largestLength = largestMatch[1].length;
+      
+      for (const match of matches) {
+        if (match[1].length > largestLength) {
+          largestMatch = match;
+          largestLength = match[1].length;
+        }
+      }
+      
+      let code = largestMatch[1]
         .replace(/^[\s\S]*?<\?php\s*/m, "<?php\n")
         .replace(/\n<\?php/g, "")
-        .trim()
+        .trim();
     
       // Clean up code to remove artifacts that could break WordPress plugins
-      code = cleanAndFormatCode(code)
+      code = cleanAndFormatCode(code);
+      
+      console.log("Extracted code length:", code.length);
 
-      const message = response.replace(codeBlockRegex, "").trim()
-
+      // Create a message without the code blocks
+      let message = response.replace(codeBlockRegex, "").trim();
+      
+      // If the code doesn't have a plugin header but the original code does, preserve the header
       if (!code.includes("Plugin Name:") && generatedCode.includes("Plugin Name:")) {
-        const existingHeader = generatedCode.match(/\/\*[\s\S]*?\*\//)?.[0] || ""
+        console.log("Preserving existing plugin header");
+        const existingHeader = generatedCode.match(/\/\*[\s\S]*?\*\//)?.[0] || "";
         return {
           message,
           codeUpdate: `${existingHeader}\n\n${code}`,
-        }
+        };
       }
 
+      // Ensure the code starts with <?php
+      const finalCode = code.startsWith("<?php") ? code : `<?php\n${code}`;
+      console.log("Final code length:", finalCode.length);
+      
       return {
         message,
-        codeUpdate: code.startsWith("<?php") ? code : `<?php\n${code}`,
+        codeUpdate: finalCode,
+      };
+    } else {
+      console.log("No code blocks found in response");
+      
+      // Check if the response contains PHP code without code blocks
+      if (response.includes("<?php") && response.includes("function")) {
+        console.log("Found PHP code without code blocks");
+        
+        // Try to extract the PHP code
+        const phpCode = response.substring(response.indexOf("<?php"));
+        
+        // Clean up code
+        const cleanedCode = cleanAndFormatCode(phpCode);
+        
+        return {
+          message: "Code updated based on your request.",
+          codeUpdate: cleanedCode,
+        };
       }
     }
 
-    return { message: response }
-  }
+    console.log("No code update found in response");
+    return { message: response };
+  };
 
   const createFileStructure = (code: string) => {
     if (!pluginDetails?.name) return
@@ -1332,7 +1383,18 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
   }
 
   const handleSendMessage = async (content: string, files?: File[]) => {
-    if (!content.trim() && (!files || files.length === 0)) return
+    // If plugin hasn't been generated yet and we're not showing the plugin details modal,
+    // show the plugin details modal instead of sending the message
+    if (!generatedPlugin && !showPluginDetailsModal) {
+      // Save the content as the description
+      setDescription(content);
+      // Show the plugin details modal
+      setShowPluginDetailsModal(true);
+      // Return false to indicate the message wasn't actually sent
+      return false;
+    }
+
+    if (!content.trim() && (!files || files.length === 0)) return false;
 
     const timestamp = new Date().toISOString()
     const messageId = uuidv4()
@@ -1568,10 +1630,13 @@ Plugin name: ${pluginDetails?.name || pluginName}`,
       }
 
       if (tempMessageIdRef.current === tempMessageId) {
-        const parsedResponse = parseAIResponse(tempResponse)
+        const parsedResponse = parseAIResponse(tempResponse);
+        console.log("Parsed response:", parsedResponse.message.substring(0, 100) + "...");
+        console.log("Has code update:", !!parsedResponse.codeUpdate);
         
+        // Update the message with the parsed response
         setMessages(prev => {
-          const uniqueMessages = Array.from(new Map(prev.map(msg => [msg.id, msg])).values())
+          const uniqueMessages = Array.from(new Map(prev.map(msg => [msg.id, msg])).values());
           return uniqueMessages.map(msg => 
             msg.id === tempMessageId 
               ? { 
@@ -1580,11 +1645,37 @@ Plugin name: ${pluginDetails?.name || pluginName}`,
                   codeUpdate: !!parsedResponse.codeUpdate
                 }
               : msg
-          )
-        })
+          );
+        });
         
+        // If there's a code update, handle it
         if (parsedResponse.codeUpdate) {
-          handleCodeUpdate(parsedResponse.codeUpdate)
+          console.log("Code update detected, calling handleCodeUpdate with code length:", parsedResponse.codeUpdate.length);
+          
+          // Check if the code update is valid
+          if (parsedResponse.codeUpdate.includes("<?php") && parsedResponse.codeUpdate.includes("function")) {
+            // Handle the code update
+            handleCodeUpdate(parsedResponse.codeUpdate);
+          } else {
+            console.log("Code update doesn't appear to be valid PHP code");
+          }
+        } else {
+          console.log("No code update detected in parsed response");
+          
+          // Check if the message contains code-like content that might have been missed
+          if (tempResponse.includes("<?php") && tempResponse.includes("function") && !tempResponse.includes("```")) {
+            console.log("Message contains PHP code without code blocks, attempting to extract");
+            
+            // Try to extract PHP code from the message
+            const phpStart = tempResponse.indexOf("<?php");
+            if (phpStart !== -1) {
+              const phpCode = tempResponse.substring(phpStart);
+              console.log("Extracted PHP code length:", phpCode.length);
+              
+              // Handle the code update
+              handleCodeUpdate(phpCode);
+            }
+          }
         }
       }
     } catch (error) {
@@ -1607,6 +1698,9 @@ Plugin name: ${pluginDetails?.name || pluginName}`,
         tempMessageIdRef.current = null
       }
     }
+
+    // Return true to indicate the message was sent
+    return true;
   }
 
   const handleSavePlugin = () => {
@@ -1828,13 +1922,19 @@ Your response must include:
   }
 
   const handleCodeUpdate = (code: string) => {
-    if (!code) return;
+    if (!code) {
+      console.log("handleCodeUpdate called with empty code");
+      return;
+    }
+    
+    console.log("handleCodeUpdate called with code length:", code.length);
     
     // Store the code update for later use
-    setPendingCodeUpdate(code)
+    setPendingCodeUpdate(code);
     
     // Show the version update modal
-    setShowVersionUpdateModal(true)
+    console.log("Setting showVersionUpdateModal to true");
+    setShowVersionUpdateModal(true);
   }
 
   const handleVersionUpdateSubmit = (newVersion: string) => {
@@ -1858,36 +1958,29 @@ Your response must include:
     // Update version in the plugin code header
     console.log("Updating version in plugin code header");
     const updatedCode = pendingCodeUpdate.replace(
-      /Version:\s*([0-9]+\.?)+/,
-      `Version: ${newVersion}`
+      /(\* Version:\s*)([0-9.]+)/,
+      `$1${newVersion}`
     )
     
-    // Apply the code update
-    console.log("Applying code update, new code length:", updatedCode.length);
+    // Update the generated code
+    console.log("Setting generated code with updated version");
     setGeneratedCode(updatedCode)
+    
+    // Create a new file structure
+    console.log("Creating new file structure");
     createFileStructure(updatedCode)
     
-    // Add to version history
-    console.log("Adding to version history");
-    addCodeVersion(updatedCode, 'AI suggested edit', newVersion)
+    // Add a new version to the code versions
+    console.log("Adding new code version");
+    addCodeVersion(updatedCode, `Updated to version ${newVersion}`, `v${newVersion}`)
     
-    // Clear the pending update
+    // Clear the pending code update
+    console.log("Clearing pending code update");
     setPendingCodeUpdate(null)
     
     // Close the modal
+    console.log("Closing version update modal");
     setShowVersionUpdateModal(false)
-    
-    // Update messages to show the code was updated
-    console.log("Updating messages to show code was updated");
-    setMessages(prev => prev.map(msg => 
-      msg.type === 'assistant' && !msg.codeUpdate 
-        ? { ...msg, codeUpdate: true }
-        : msg
-    ))
-    
-    // Force refresh the file structure display
-    console.log("Forcing refresh of file structure");
-    // No need to force refresh as createFileStructure already updates the state
   }
 
   const extractCustomFunctions = (code: string) => {
@@ -2148,19 +2241,34 @@ Your response must include:
     setSelectedFile(path)
   }
 
+  // Add a function to handle new session
+  const handleNewSession = () => {
+    // Clear messages
+    setMessages([]);
+    // Reset generated plugin flag
+    setGeneratedPlugin(false);
+    // Clear description
+    setDescription("");
+    // Reset file structure
+    setFileStructure([]);
+    // Reset selected file
+    setSelectedFile(null);
+    // Reset plugin details
+    setPluginDetails(null);
+    setHasFilledDetails(false);
+  }
+
   return (
     <div className="flex flex-col h-screen">
-      <div className="flex justify-between items-center p-4 flex-shrink-0">
+      <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">WordPress Plugin Generator</h1>
-        <Button
-          onClick={() => {
-            // Clear localStorage and reload with force_new_session parameter
-            localStorage.clear();
-            window.location.href = window.location.pathname + '?force_new_session=true';
-          }}
-          variant="outline"
-          size="sm"
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={handleNewSession}
+          className="flex items-center gap-1"
         >
+          <RefreshCw className="h-4 w-4" />
           New Session
         </Button>
       </div>
@@ -2419,25 +2527,45 @@ Your response must include:
 
       <VersionUpdateModal
         isOpen={showVersionUpdateModal}
-        onClose={() => setShowVersionUpdateModal(false)}
-        onSubmit={handleVersionUpdateSubmit}
+        onClose={() => {
+          console.log("VersionUpdateModal onClose called, setting showVersionUpdateModal to false");
+          setShowVersionUpdateModal(false);
+        }}
+        onSubmit={(newVersion) => {
+          console.log("VersionUpdateModal onSubmit called with newVersion:", newVersion);
+          handleVersionUpdateSubmit(newVersion);
+        }}
         currentVersion={codeVersions[currentVersionIndex]?.version || "1.0.0"}
       />
 
       <PluginDetailsModal
         isOpen={showPluginDetailsModal}
-        onClose={() => setShowPluginDetailsModal(false)}
+        onClose={() => {
+          // Just close the modal without clearing the description
+          setShowPluginDetailsModal(false);
+        }}
         onSubmit={(details) => {
+          console.log("PluginDetailsModal onSubmit: received details with description:", details.description);
+          
           // Set plugin details and hasFilledDetails
           setPluginDetails(details);
           setPluginName(details.name);
           setHasFilledDetails(true);
           setShowPluginDetailsModal(false);
           
+          // Make sure the description is preserved
+          if (details.description && details.description.trim() !== '') {
+            console.log("PluginDetailsModal onSubmit: updating description to:", details.description);
+            setDescription(details.description);
+          }
+          
           // Always call generateCode immediately after clicking CONTINUE
-          // The generateCode function has its own validation for description/files
-          generateCode();
+          // Pass true to skip description validation since we're coming from the plugin details modal
+          console.log("PluginDetailsModal onSubmit: calling generateCode with skipDescriptionValidation=true");
+          generateCode(true);
         }}
+        // Pass the current description to the modal
+        initialDescription={description}
       />
 
       <RevisionModal

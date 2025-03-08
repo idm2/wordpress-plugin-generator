@@ -21,7 +21,7 @@ interface Message {
 
 interface PluginDiscussionProps {
   messages: Message[]
-  onSendMessage: (content: string, files?: File[]) => Promise<void>
+  onSendMessage: (content: string, files?: File[]) => Promise<boolean | void>
   className?: string
   onCodeUpdate?: (code: string) => void
   selectedModel?: string
@@ -50,10 +50,20 @@ export function PluginDiscussion({
   const [files, setFiles] = useState<File[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [shouldClearAttachments, setShouldClearAttachments] = useState(false)
+  const prevMessagesLengthRef = useRef(messages.length)
   
   // Determine if this is the initial message based on messages array length
   // This ensures the placeholder text changes after the first message is sent
   const isInitialMessage = messages.length === 0
+
+  // Update inputValue when initialDescription changes
+  useEffect(() => {
+    console.log("PluginDiscussion: initialDescription changed to:", initialDescription);
+    if (initialDescription) {
+      console.log("PluginDiscussion: updating inputValue to:", initialDescription);
+      setInputValue(initialDescription);
+    }
+  }, [initialDescription]);
 
   // Update parent component when input value changes
   useEffect(() => {
@@ -69,8 +79,39 @@ export function PluginDiscussion({
     }
   }, [files, onFilesSelected]);
 
+  // Add a useEffect to watch for new messages from the AI
+  useEffect(() => {
+    // Check if a new message was added
+    if (messages.length > prevMessagesLengthRef.current) {
+      console.log("PluginDiscussion: New message detected, messages length:", messages.length, "prev:", prevMessagesLengthRef.current);
+      
+      // If the last message is from the assistant, clear the input
+      if (messages.length > 0 && messages[messages.length - 1].type === "assistant") {
+        console.log("PluginDiscussion: AI response received, clearing input");
+        // Force clear the input
+        setInputValue("");
+        setFiles([]);
+        setShouldClearAttachments(true);
+        setTimeout(() => setShouldClearAttachments(false), 100);
+      }
+    }
+    
+    // Update the ref
+    prevMessagesLengthRef.current = messages.length;
+  }, [messages]);
+
   const handleSubmit = async () => {
     if ((!inputValue.trim() && files.length === 0) || isSubmitting) return
+
+    // Store the current input value and files
+    const currentInputValue = inputValue;
+    const currentFiles = [...files];
+
+    // Clear the input immediately
+    setInputValue("");
+    setFiles([]);
+    setShouldClearAttachments(true);
+    setTimeout(() => setShouldClearAttachments(false), 100);
 
     setIsSubmitting(true)
     try {
@@ -100,14 +141,13 @@ export function PluginDiscussion({
           }
         }
       } else {
-        await onSendMessage(inputValue, files)
+        try {
+          // Call onSendMessage with the stored input value and files
+          await onSendMessage(currentInputValue, currentFiles);
+        } catch (error) {
+          console.error("Error sending message:", error);
+        }
       }
-      
-      // Clear input and files after successful submission
-      setInputValue("")
-      setFiles([])
-      setShouldClearAttachments(true)
-      setTimeout(() => setShouldClearAttachments(false), 100)
     } catch (error) {
       console.error("Failed to send message:", error)
     } finally {
