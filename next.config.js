@@ -33,27 +33,28 @@ const nextConfig = {
   
   // Add webpack configuration to handle binary modules
   webpack: (config, { isServer }) => {
-    // Only include binary modules in the server bundle
-    if (!isServer) {
-      // Don't bundle binary modules on the client-side
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
-        'ssh2': false,
-        'cpu-features': false,
-        'basic-ftp': false,
-        fs: false,
-        net: false,
-        tls: false,
-        child_process: false,
-        stream: false,
-        path: false,
-        os: false,
-        crypto: false
-      };
+    // Handle binary modules
+    if (isServer) {
+      config.externals = [...config.externals, 'ssh2', 'cpu-features'];
     }
-    
+
+    // Add fallbacks for node.js modules
+    config.resolve.fallback = {
+      ...config.resolve.fallback,
+      fs: false,
+      net: false,
+      tls: false,
+      dns: false,
+      child_process: false,
+      stream: require.resolve('stream-browserify'),
+      crypto: require.resolve('crypto-browserify'),
+      path: require.resolve('path-browserify'),
+      os: require.resolve('os-browserify/browser')
+    };
+
     return config;
-  }
+  },
+  swcMinify: true
 };
 
 module.exports = nextConfig;
