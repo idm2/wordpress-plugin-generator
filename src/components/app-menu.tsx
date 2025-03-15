@@ -29,7 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { WordPressConnection } from "./wordpress-connector"
 import { CodeVersion } from "@/types/shared"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
-import { HowToModal } from "./how-to-modal"
+import { HowToModalV2 } from "./how-to-modal-v2"
 
 interface AppMenuProps {
   // Project menu props
@@ -334,9 +334,10 @@ export function AppMenu({
       </Button>
       
       {/* How To Modal */}
-      <HowToModal 
+      <HowToModalV2 
         open={isHowToModalOpen} 
         onOpenChange={setIsHowToModalOpen} 
+        key={`how-to-modal-v2-updated-${Date.now()}-${Math.random()}`}
       />
     </div>
   )

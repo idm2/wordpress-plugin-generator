@@ -41,7 +41,7 @@ export function HowToModal({ open, onOpenChange }: HowToModalProps) {
         <DialogHeader>
           <DialogTitle className="text-2xl flex items-center gap-2">
             <HelpCircle className="h-6 w-6 text-blue-500" />
-            WordPress Plugin Generator - User Guide
+            WordPress Plugin Generator - User Guide (Updated)
           </DialogTitle>
           <DialogDescription>
             A comprehensive guide to all features and functionality of the WordPress Plugin Generator
@@ -188,15 +188,22 @@ export function HowToModal({ open, onOpenChange }: HowToModalProps) {
                   <ol className="list-decimal list-inside mt-2 space-y-1 text-gray-700">
                     <li>Click on "Project" in the top menu</li>
                     <li>Select "Save Session" from the dropdown</li>
-                    <li>A JSON file will be downloaded to your computer</li>
-                    <li>This file contains all your project data, including code, conversation history, and WordPress connection details</li>
+                    <li>A JSON file will be downloaded to your computer with a name based on your plugin name and current date/time</li>
+                    <li>This file contains all your project data, including:</li>
+                    <ul className="list-disc list-inside ml-6 mt-1 text-gray-700">
+                      <li>All plugin code and file structure</li>
+                      <li>Plugin details (name, description, version, etc.)</li>
+                      <li>Complete conversation history with the AI</li>
+                      <li>WordPress connection details (if you've connected)</li>
+                      <li>All version history of your plugin</li>
+                    </ul>
                     <li>Store this file in a safe location for future use</li>
                   </ol>
                   <div className="mt-2 bg-gray-100 p-3 rounded-md">
                     <p className="text-sm text-gray-600 flex items-start">
                       <AlertTriangle className="h-4 w-4 text-amber-500 mr-2 flex-shrink-0 mt-0.5" />
                       <span>
-                        <strong>Tip:</strong> Save your project regularly, especially after making significant changes or before trying experimental modifications.
+                        <strong>Tip:</strong> Save your project regularly, especially after making significant changes or before trying experimental modifications. Consider keeping multiple saved versions with different filenames to track major milestones in your development process.
                       </span>
                     </p>
                   </div>
@@ -214,20 +221,20 @@ export function HowToModal({ open, onOpenChange }: HowToModalProps) {
                     <li>Click on "Project" in the top menu</li>
                     <li>Select "Load Saved Session" from the dropdown</li>
                     <li>A file picker will open - select the JSON file you previously saved</li>
-                    <li>The system will restore your project exactly as it was when saved, including:</li>
+                    <li>The system will restore your project exactly as it was when saved</li>
+                    <li>After loading, you can continue working where you left off, including:</li>
                     <ul className="list-disc list-inside ml-6 mt-1 text-gray-700">
-                      <li>All plugin code and file structure</li>
-                      <li>Plugin details (name, description, version, etc.)</li>
-                      <li>Conversation history with the AI</li>
-                      <li>WordPress connection details (if previously saved)</li>
-                      <li>Version history of your plugin</li>
+                      <li>Viewing and editing all plugin files</li>
+                      <li>Continuing the conversation with the AI</li>
+                      <li>Deploying to WordPress (if connection details were saved)</li>
+                      <li>Accessing all previous versions of your plugin</li>
                     </ul>
                   </ol>
                   <div className="mt-2 bg-gray-100 p-3 rounded-md">
                     <p className="text-sm text-gray-600 flex items-start">
                       <AlertTriangle className="h-4 w-4 text-amber-500 mr-2 flex-shrink-0 mt-0.5" />
                       <span>
-                        <strong>Note:</strong> Loading a saved session will replace your current work. Make sure to save any current work before loading a different project.
+                        <strong>Note:</strong> Loading a saved session will replace your current work. Make sure to save any current work before loading a different project. If you frequently work on multiple plugins, consider using different browsers or browser profiles to maintain separate sessions.
                       </span>
                     </p>
                   </div>
@@ -409,19 +416,27 @@ export function HowToModal({ open, onOpenChange }: HowToModalProps) {
                     <li>Click on "WP Tools" in the top menu</li>
                     <li>Select "Read Debug Log" from the dropdown</li>
                     <li>The system will connect to your server and retrieve the debug log</li>
-                    <li>You'll see two tabs in the results:</li>
+                    <li>In the debug log viewer, you'll have several options:</li>
                     <ul className="list-disc list-inside ml-6 mt-1 text-gray-700">
-                      <li><strong>Plugin Errors:</strong> Shows only errors related to your plugin</li>
-                      <li><strong>Full Log:</strong> Shows the complete WordPress debug log</li>
+                      <li><strong>Plugin Errors Tab:</strong> Shows only errors related to your plugin</li>
+                      <li><strong>Full Log Tab:</strong> Shows the complete WordPress debug log</li>
+                      <li><strong>Filter by Time:</strong> Limit results to errors after a specific date/time</li>
+                      <li><strong>Limit Lines:</strong> Control how many lines of the log to display</li>
+                      <li><strong>Search:</strong> Find specific text within the log</li>
                     </ul>
-                    <li>Use the search function to find specific errors</li>
-                    <li>The log is automatically filtered to show recent entries first</li>
+                    <li>The log is automatically formatted for readability with timestamps and error levels highlighted</li>
+                    <li>You can copy portions of the log or save the entire log to a file for further analysis</li>
                   </ol>
                   <div className="mt-2 bg-gray-100 p-3 rounded-md">
                     <p className="text-sm text-gray-600 flex items-start">
                       <AlertTriangle className="h-4 w-4 text-amber-500 mr-2 flex-shrink-0 mt-0.5" />
                       <span>
-                        <strong>Tip:</strong> Debug logs are invaluable for troubleshooting plugin issues. If your plugin isn't working as expected, check the logs for PHP errors or warnings.
+                        <strong>Tip:</strong> For WordPress to generate debug logs, you need to enable debugging in your wp-config.php file. Add these lines to enable comprehensive logging:
+                        <br /><code className="block mt-1 bg-gray-200 p-1 rounded">
+                          define('WP_DEBUG', true);<br />
+                          define('WP_DEBUG_LOG', true);<br />
+                          define('WP_DEBUG_DISPLAY', false);
+                        </code>
                       </span>
                     </p>
                   </div>
@@ -438,19 +453,36 @@ export function HowToModal({ open, onOpenChange }: HowToModalProps) {
                   <ol className="list-decimal list-inside mt-2 space-y-1 text-gray-700">
                     <li>Click on "WP Tools" in the top menu</li>
                     <li>Select "Delete WP Plugin" from the dropdown (shown in red as a warning)</li>
-                    <li>A confirmation dialog will appear asking you to confirm the deletion</li>
-                    <li>If you confirm, the system will:</li>
+                    <li>In the deletion dialog, you'll need to:</li>
+                    <ul className="list-disc list-inside ml-6 mt-1 text-gray-700">
+                      <li>Confirm the plugin slug (folder name) to be deleted</li>
+                      <li>Check that the FTP/SFTP connection details are correct</li>
+                      <li>Acknowledge that this action cannot be undone</li>
+                    </ul>
+                    <li>Click "Delete Plugin" to proceed with deletion</li>
+                    <li>The system will:</li>
                     <ul className="list-disc list-inside ml-6 mt-1 text-gray-700">
                       <li>Connect to your WordPress server via FTP/SFTP</li>
-                      <li>Navigate to the plugins directory</li>
-                      <li>Completely remove your plugin's directory and all its files</li>
+                      <li>Navigate to the wp-content/plugins directory</li>
+                      <li>Verify the plugin directory exists</li>
+                      <li>Recursively delete all files and folders within the plugin directory</li>
+                      <li>Remove the plugin directory itself</li>
+                      <li>Display a confirmation message when complete</li>
                     </ul>
                   </ol>
                   <div className="mt-2 bg-gray-100 p-3 rounded-md">
                     <p className="text-sm text-gray-600 flex items-start">
                       <AlertTriangle className="h-4 w-4 text-red-500 mr-2 flex-shrink-0 mt-0.5" />
                       <span>
-                        <strong>Warning:</strong> This operation permanently deletes your plugin from the server. It cannot be undone. Make sure you have a backup or have saved your session if you might need the plugin again.
+                        <strong>Warning:</strong> This operation permanently deletes your plugin from the server. It cannot be undone. The plugin is deleted directly at the file system level, bypassing WordPress's plugin management. Make sure you have a backup or have saved your session if you might need the plugin again.
+                      </span>
+                    </p>
+                  </div>
+                  <div className="mt-2 bg-gray-100 p-3 rounded-md">
+                    <p className="text-sm text-gray-600 flex items-start">
+                      <AlertTriangle className="h-4 w-4 text-amber-500 mr-2 flex-shrink-0 mt-0.5" />
+                      <span>
+                        <strong>Note:</strong> This operation only deletes the plugin files. It does not remove any database tables or options that the plugin may have created. If your plugin stores data in the WordPress database, you may need to clean that up separately.
                       </span>
                     </p>
                   </div>
