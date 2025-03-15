@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as ftp from 'basic-ftp'
-import { Client } from 'ssh2'
 import { Readable } from 'stream'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -252,176 +251,200 @@ async function handleSftpOperation(
     max_lines?: number
   }
 ): Promise<{ success: boolean, message: string, data?: any }> {
+  // Use dynamic import for ssh2
+  let Client;
+  try {
+    const ssh2 = await import('ssh2');
+    Client = ssh2.Client;
+  } catch (error) {
+    console.error('Failed to import ssh2:', error);
+    return {
+      success: false,
+      message: 'SFTP module not available in this environment. Please use FTP instead.'
+    };
+  }
+
+  const client = new Client();
+  
   return new Promise((resolve) => {
     console.log(`Connecting to SFTP server: ${sftpDetails.host}:${sftpDetails.port}`);
     
-    // Set up connection timeout
-    const connectionTimeout = setTimeout(() => {
+    // Handle connection errors
+    client.on('error', (err: Error) => {
+      console.error('SFTP connection error:', err);
+      
+      // Check for specific SFTP errors
+      let errorMessage = err.message;
+      
+      // Check for authentication errors
+      if (errorMessage.includes('auth') || errorMessage.includes('authentication')) {
+        errorMessage = 'Authentication failed. Please check your username and password.';
+      }
+      // Check for connection errors
+      else if (errorMessage.includes('connect') || errorMessage.includes('ECONNREFUSED')) {
+        errorMessage = `Connection refused to ${sftpDetails.host}:${sftpDetails.port}. Please check that the SFTP server is running and the port is correct.`;
+      }
+      // Check for DNS resolution errors
+      else if (errorMessage.includes('getaddrinfo') || errorMessage.includes('ENOTFOUND')) {
+        errorMessage = `Could not resolve hostname "${sftpDetails.host}". Please check the hostname and ensure it is correct.`;
+      }
+      
       resolve({ 
         success: false, 
-        message: 'SFTP connection timed out after 15 seconds' 
+        message: `SFTP error: ${errorMessage}` 
       });
-    }, 15000);
+    });
     
-    // Configure secure connection options
-    const connectOptions: any = {
-      host: sftpDetails.host,
-      port: sftpDetails.port || 22,
-      username: sftpDetails.username,
-      password: sftpDetails.password,
-      readyTimeout: 10000
-    };
-    
-    // Add secure algorithms if secure is enabled
-    if (sftpDetails.secure !== false) {
-      connectOptions.algorithms = {
-        kex: [
-          'diffie-hellman-group-exchange-sha256',
-          'diffie-hellman-group14-sha256',
-          'diffie-hellman-group14-sha1'
-        ],
-        cipher: [
-          'aes128-ctr',
-          'aes192-ctr',
-          'aes256-ctr'
-        ]
-      };
-    }
-    
-    const conn = new Client();
-    
-    conn.on('ready', () => {
-      clearTimeout(connectionTimeout);
+    client.on('ready', () => {
       console.log('SFTP connection successful');
       
-      conn.sftp((err: Error | undefined, sftp: any) => {
+      client.sftp((err, sftp) => {
         if (err) {
-          conn.end();
+          console.error('Failed to start SFTP session:', err);
+          client.end();
           resolve({ 
             success: false, 
-            message: `SFTP error: ${err.message}` 
+            message: `Failed to start SFTP session: ${err.message}` 
           });
           return;
         }
         
+        // Handle different operations
         if (operation === 'delete-plugin' && pluginSlug) {
-          const pluginPath = `${sftpDetails.rootPath}/wp-content/plugins/${pluginSlug}`
+          const pluginPath = path.posix.join(
+            sftpDetails.rootPath || '',
+            'wp-content/plugins',
+            pluginSlug
+          );
           
-          // Check if plugin directory exists
-          sftp.readdir(pluginPath, (err: Error | null, list: any[]) => {
+          console.log(`Checking if plugin exists at path: ${pluginPath}`);
+          
+          // Check if the plugin directory exists
+          sftp.stat(pluginPath, (err, stats) => {
             if (err) {
-              conn.end()
+              console.error('Failed to check plugin directory:', err);
+              client.end();
               resolve({ 
                 success: false, 
                 message: `Plugin '${pluginSlug}' not found or cannot be accessed` 
-              })
-              return
+              });
+              return;
             }
             
-            // Function to recursively delete a directory
+            if (!stats.isDirectory()) {
+              client.end();
+              resolve({ 
+                success: false, 
+                message: `Path '${pluginPath}' exists but is not a directory` 
+              });
+              return;
+            }
+            
+            console.log(`Plugin directory found at: ${pluginPath}`);
+            
+            // Recursive function to delete a directory and its contents
             const deleteDirectory = (path: string, callback: (err?: Error) => void) => {
-              sftp.readdir(path, (err: Error | null, list: any[]) => {
+              sftp.readdir(path, (err, list) => {
                 if (err) {
-                  callback(err)
-                  return
+                  return callback(err);
                 }
                 
-                let pending = list.length
+                let pending = list.length;
                 if (!pending) {
-                  sftp.rmdir(path, callback)
-                  return
+                  return sftp.rmdir(path, callback);
                 }
                 
-                list.forEach((item: any) => {
-                  const itemPath = `${path}/${item.filename}`
+                list.forEach((item) => {
+                  const itemPath = `${path}/${item.filename}`;
                   
-                  if (item.longname.startsWith('d')) {
-                    // It's a directory
+                  if (item.attrs.isDirectory()) {
                     deleteDirectory(itemPath, (err) => {
                       if (err) {
-                        callback(err)
-                        return
+                        return callback(err);
                       }
                       
                       if (--pending === 0) {
-                        sftp.rmdir(path, callback)
+                        sftp.rmdir(path, callback);
                       }
-                    })
+                    });
                   } else {
-                    // It's a file
-                    sftp.unlink(itemPath, (err: Error | null) => {
+                    sftp.unlink(itemPath, (err) => {
                       if (err) {
-                        callback(err)
-                        return
+                        return callback(err);
                       }
                       
                       if (--pending === 0) {
-                        sftp.rmdir(path, callback)
+                        sftp.rmdir(path, callback);
                       }
-                    })
+                    });
                   }
-                })
-              })
-            }
+                });
+              });
+            };
             
-            // Delete the plugin directory
+            // Delete the plugin directory and all its contents
             deleteDirectory(pluginPath, (err) => {
-              conn.end()
+              client.end();
               
               if (err) {
+                console.error('Failed to delete plugin directory:', err);
                 resolve({ 
                   success: false, 
                   message: `Failed to delete plugin: ${err.message}` 
-                })
-              } else {
-                resolve({ 
-                  success: true, 
-                  message: `Plugin '${pluginSlug}' successfully deleted` 
-                })
+                });
+                return;
               }
-            })
-          })
+              
+              resolve({ 
+                success: true, 
+                message: `Plugin '${pluginSlug}' successfully deleted` 
+              });
+            });
+          });
         } 
         else if (operation === 'read-debug-log') {
-          const debugLogPath = `${sftpDetails.rootPath}/wp-content/debug.log`
+          const debugLogPath = path.posix.join(
+            sftpDetails.rootPath || '',
+            'wp-content/debug.log'
+          );
           
-          // Create a temporary file to download the debug log
-          const tempDir = os.tmpdir();
-          const tempFilePath = path.join(tempDir, 'wp-debug.log');
+          console.log(`Checking if debug log exists at path: ${debugLogPath}`);
           
-          // Check if debug log exists and download it
-          const readStream = sftp.createReadStream(debugLogPath);
-          const writeStream = fs.createWriteStream(tempFilePath);
-          
-          readStream.on('error', (err: Error) => {
-            conn.end();
-            resolve({ 
-              success: false, 
-              message: `Debug log file not found or cannot be accessed: ${err.message}` 
-            });
-          });
-          
-          writeStream.on('error', (err: Error) => {
-            conn.end();
-            resolve({ 
-              success: false, 
-              message: `Failed to write temporary file: ${err.message}` 
-            });
-          });
-          
-          writeStream.on('close', () => {
-            conn.end();
+          // Check if the debug log file exists
+          sftp.stat(debugLogPath, (err) => {
+            if (err) {
+              console.error('Failed to check debug log file:', err);
+              client.end();
+              resolve({ 
+                success: false, 
+                message: 'Debug log file not found or cannot be accessed' 
+              });
+              return;
+            }
             
-            try {
-              // Read the file content
-              const debugLogContent = fs.readFileSync(tempFilePath, 'utf-8');
+            console.log('Debug log file found, reading content...');
+            
+            // Read the debug log file
+            const stream = sftp.createReadStream(debugLogPath);
+            let debugLogContent = '';
+            
+            stream.on('data', (data) => {
+              debugLogContent += data.toString();
+            });
+            
+            stream.on('error', (err) => {
+              console.error('Error reading debug log file:', err);
+              client.end();
+              resolve({ 
+                success: false, 
+                message: `Failed to read debug log: ${err.message}` 
+              });
+            });
+            
+            stream.on('end', () => {
+              client.end();
               
-              // Clean up the temporary file
-              try {
-                fs.unlinkSync(tempFilePath);
-              } catch (e) {
-                console.error('Failed to delete temporary file:', e);
-              }
+              console.log(`Read ${debugLogContent.length} bytes from debug log`);
               
               // Filter the debug log content based on options
               let filteredContent = debugLogContent;
@@ -500,18 +523,11 @@ async function handleSftpOperation(
                   }
                 }
               });
-            } catch (err) {
-              resolve({ 
-                success: false, 
-                message: `Failed to read debug log: ${err instanceof Error ? err.message : String(err)}` 
-              });
-            }
+            });
           });
-          
-          // Pipe the read stream to the write stream
-          readStream.pipe(writeStream);
-        } else {
-          conn.end()
+        } 
+        else {
+          client.end()
           resolve({ 
             success: false, 
             message: 'Invalid operation' 
@@ -520,123 +536,84 @@ async function handleSftpOperation(
       })
     })
     
-    conn.on('error', (err: Error) => {
-      clearTimeout(connectionTimeout);
-      
-      // Check for specific SFTP errors
-      let errorMessage = err.message;
-      
-      // Check for DNS resolution errors
-      if (errorMessage.includes('getaddrinfo') || errorMessage.includes('ENOTFOUND')) {
-        errorMessage = `Could not resolve hostname "${sftpDetails.host}". Please check the hostname and ensure it is correct.`;
+    // Connect to the SFTP server
+    client.connect({
+      host: sftpDetails.host,
+      port: sftpDetails.port || 22,
+      username: sftpDetails.username,
+      password: sftpDetails.password,
+      readyTimeout: 10000, // 10 seconds timeout
+      // Allow self-signed certificates
+      algorithms: {
+        serverHostKey: [
+          'ssh-rsa',
+          'ssh-dss',
+          'ecdsa-sha2-nistp256',
+          'ecdsa-sha2-nistp384',
+          'ecdsa-sha2-nistp521',
+          'rsa-sha2-512',
+          'rsa-sha2-256'
+        ]
       }
-      // Check for connection refused errors
-      else if (errorMessage.includes('ECONNREFUSED')) {
-        errorMessage = `Connection refused to ${sftpDetails.host}:${sftpDetails.port}. Please check that the SFTP server is running and the port is correct.`;
-      }
-      // Check for authentication errors
-      else if (errorMessage.includes('authentication') || errorMessage.includes('auth failed')) {
-        errorMessage = 'Authentication failed. Please check your username and password.';
-      }
-      
-      resolve({ 
-        success: false, 
-        message: `SFTP error: ${errorMessage}` 
-      });
     });
-    
-    conn.connect(connectOptions);
   });
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { operation, ftpDetails, pluginSlug, filter_options } = await req.json()
+    const data = await req.json();
+    const { operation, ftpDetails, pluginSlug, filter_options } = data;
     
-    if (!operation || !ftpDetails) {
-      return NextResponse.json(
-        { success: false, message: 'Operation and FTP/SFTP details are required' },
-        { status: 400 }
-      )
+    // Validate required parameters
+    if (!operation) {
+      return NextResponse.json({ 
+        success: false, 
+        message: 'Operation is required' 
+      }, { status: 400 });
     }
     
-    if (operation === 'delete-plugin' && !pluginSlug) {
-      return NextResponse.json(
-        { success: false, message: 'Plugin slug is required for delete operation' },
-        { status: 400 }
-      )
+    if (!ftpDetails) {
+      return NextResponse.json({ 
+        success: false, 
+        message: 'FTP/SFTP details are required' 
+      }, { status: 400 });
     }
     
-    // Validate FTP details
-    if (!ftpDetails.host || !ftpDetails.username || !ftpDetails.password) {
-      return NextResponse.json(
-        { success: false, message: 'FTP/SFTP host, username, and password are required' },
-        { status: 400 }
-      )
-    }
+    // Check if this is an SFTP or FTP connection
+    const isSftp = ftpDetails.protocol === 'sftp';
     
-    // Set default secure option if not provided
-    if (ftpDetails.secure === undefined) {
-      ftpDetails.secure = true; // Default to secure connections
-    }
+    // Log the operation details
+    console.log(`Emergency access operation: ${operation}`);
+    console.log(`Connection type: ${isSftp ? 'SFTP' : 'FTP'}`);
+    console.log(`Host: ${ftpDetails.host}:${ftpDetails.port}`);
+    console.log(`Plugin slug: ${pluginSlug || 'N/A'}`);
     
-    // Set default filter options if not provided
-    const defaultFilterOptions = {
-      filter_by_plugin: !!pluginSlug,
-      filter_by_time: true,
-      // Default to last 10 minutes
-      time_threshold: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
-      max_lines: 200
-    };
-    
-    // Merge provided filter options with defaults
-    const finalFilterOptions = {
-      ...defaultFilterOptions,
-      ...(filter_options || {})
-    };
-    
-    console.log(`Performing emergency ${operation} operation via ${ftpDetails.protocol} (Secure: ${ftpDetails.secure})`);
-    if (operation === 'read-debug-log') {
-      console.log('Using filter options:', finalFilterOptions);
-    }
-    
+    // Handle the operation based on the connection type
     let result;
-    if (ftpDetails.protocol === 'sftp') {
+    
+    if (isSftp) {
       result = await handleSftpOperation(
-        operation as 'delete-plugin' | 'read-debug-log',
-        ftpDetails,
+        operation, 
+        ftpDetails, 
         pluginSlug,
-        finalFilterOptions
-      )
+        filter_options
+      );
     } else {
       result = await handleFtpOperation(
-        operation as 'delete-plugin' | 'read-debug-log',
-        ftpDetails,
+        operation, 
+        ftpDetails, 
         pluginSlug,
-        finalFilterOptions
-      )
+        filter_options
+      );
     }
     
-    if (!result.success) {
-      return NextResponse.json(
-        { success: false, message: result.message },
-        { status: 500 }
-      )
-    }
-    
-    return NextResponse.json({
-      success: true,
-      message: result.message,
-      ...result.data
-    })
+    return NextResponse.json(result);
   } catch (error) {
-    console.error('Emergency access error:', error)
-    return NextResponse.json(
-      { 
-        success: false, 
-        message: error instanceof Error ? error.message : 'An unexpected error occurred'
-      },
-      { status: 500 }
-    )
+    console.error('Emergency access error:', error);
+    
+    return NextResponse.json({ 
+      success: false, 
+      message: `Server error: ${error instanceof Error ? error.message : String(error)}` 
+    }, { status: 500 });
   }
 } 
