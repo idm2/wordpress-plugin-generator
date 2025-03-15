@@ -46,10 +46,10 @@ const nextConfig = {
       tls: false,
       dns: false,
       child_process: false,
-      stream: require.resolve('stream-browserify'),
-      crypto: require.resolve('crypto-browserify'),
-      path: require.resolve('path-browserify'),
-      os: require.resolve('os-browserify/browser')
+      stream: false,
+      crypto: false,
+      path: false,
+      os: false
     };
 
     return config;
