@@ -52,25 +52,8 @@ const nextConfig = {
       };
     }
     
-    // Handle binary .node files
-    config.module = {
-      ...config.module,
-      exprContextCritical: false,
-      rules: [
-        ...config.module.rules,
-        {
-          test: /\.node$/,
-          loader: 'node-loader',
-          exclude: /node_modules/,
-        }
-      ]
-    };
-    
     return config;
-  },
-  
-  // Special handling for Vercel deployment
-  output: process.env.NEXT_PUBLIC_VERCEL_DEPLOYMENT === 'true' ? 'standalone' : undefined,
+  }
 };
 
 module.exports = nextConfig;

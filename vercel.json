@@ -3,12 +3,6 @@
   "buildCommand": "next build",
   "installCommand": "npm install",
   "framework": "nextjs",
-  "functions": {
-    "api/wordpress/**/*.js": {
-      "memory": 1024,
-      "maxDuration": 60
-    }
-  },
   "env": {
     "NODE_ENV": "production",
     "NEXT_PUBLIC_VERCEL_DEPLOYMENT": "true"
