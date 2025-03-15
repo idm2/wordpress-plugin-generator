@@ -25,7 +25,7 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
         value={selectedModel}
         onValueChange={(value) => onModelChange(value)}
       >
-        <SelectTrigger className="w-[200px] bg-white">
+        <SelectTrigger className="w-[280px] bg-white">
           <SelectValue placeholder="Select Model" />
         </SelectTrigger>
         <SelectContent className="bg-white">

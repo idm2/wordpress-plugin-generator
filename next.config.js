@@ -7,14 +7,29 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  // Set explicit port to avoid conflicts
+  // Remove hardcoded port to allow dynamic port assignment
   serverRuntimeConfig: {
-    port: 3000
+    // Let Next.js handle port assignment
   },
-  // Ensure consistent port usage in development
+  // Remove hardcoded port in env
   env: {
-    PORT: 3000
-  }
+    // PORT will be assigned by Next.js
+  },
+  // Ensure API routes are properly registered
+  experimental: {
+    appDir: true,
+  },
+  // Add rewrites for WordPress API routes
+  async rewrites() {
+    return [
+      {
+        source: '/api/wordpress/:path*',
+        destination: '/api/wordpress/:path*',
+      },
+    ];
+  },
+  // Add assetPrefix to ensure assets are loaded from the correct URL
+  assetPrefix: process.env.NODE_ENV === 'production' ? undefined : '',
 };
 
 module.exports = nextConfig;

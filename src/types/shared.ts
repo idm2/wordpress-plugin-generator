@@ -1,3 +1,5 @@
+import { WordPressConnection } from "@/components/wordpress-connector";
+
 export interface ChangelogEntry {
   id: string
   date: string
@@ -93,5 +95,6 @@ export interface CompletePluginState {
   currentVersionIndex: number
   fileStructure: FileStructure[]
   changelog: ChangelogEntry[]
+  wordpressConnection?: WordPressConnection | null
 }
 

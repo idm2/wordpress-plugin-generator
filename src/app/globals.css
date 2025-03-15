@@ -46,3 +46,23 @@
   min-width: 0;
 }
 
+/* Custom styles for WordPress connector */
+.border-blue-600 {
+  border-color: #2563eb !important;
+}
+
+.text-blue-600 {
+  color: #2563eb !important;
+}
+
+.hover\:bg-blue-50:hover {
+  background-color: #eff6ff !important;
+}
+
+/* Ensure the modal width is properly set */
+@media (min-width: 640px) {
+  .sm\:max-w-\[75rem\] {
+    max-width: 75rem !important;
+  }
+}
+

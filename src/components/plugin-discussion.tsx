@@ -58,17 +58,22 @@ export function PluginDiscussion({
 
   // Update inputValue when initialDescription changes
   useEffect(() => {
-    console.log("PluginDiscussion: initialDescription changed to:", initialDescription);
     if (initialDescription) {
-      console.log("PluginDiscussion: updating inputValue to:", initialDescription);
       setInputValue(initialDescription);
     }
   }, [initialDescription]);
 
   // Update parent component when input value changes
   useEffect(() => {
+    // Skip calling onInitialDescriptionChange on every keypress
     if (onInitialDescriptionChange) {
-      onInitialDescriptionChange(inputValue);
+      // Use a debounce mechanism to avoid calling on every keypress
+      const debounceTimer = setTimeout(() => {
+        onInitialDescriptionChange(inputValue);
+      }, 500); // Wait 500ms after typing stops before updating
+      
+      // Clean up the timer if the component unmounts or inputValue changes again
+      return () => clearTimeout(debounceTimer);
     }
   }, [inputValue, onInitialDescriptionChange]);
 
@@ -83,11 +88,8 @@ export function PluginDiscussion({
   useEffect(() => {
     // Check if a new message was added
     if (messages.length > prevMessagesLengthRef.current) {
-      console.log("PluginDiscussion: New message detected, messages length:", messages.length, "prev:", prevMessagesLengthRef.current);
-      
       // If the last message is from the assistant, clear the input
       if (messages.length > 0 && messages[messages.length - 1].type === "assistant") {
-        console.log("PluginDiscussion: AI response received, clearing input");
         // Force clear the input
         setInputValue("");
         setFiles([]);
@@ -198,7 +200,7 @@ export function PluginDiscussion({
                   <div
                     className={cn(
                       "plugin-discussion-message-content p-4 rounded-lg",
-                      message.type === "assistant" ? "bg-[rgb(224,245,245)]" : "bg-[#EDE9FE] text-gray-900",
+                      message.type === "assistant" ? "bg-[#F5F5F5]" : "bg-[rgb(131,131,131)] text-white",
                     )}
                   >
                     <p className="leading-normal whitespace-pre-wrap">{message.content}</p>
@@ -235,7 +237,7 @@ export function PluginDiscussion({
                     <div
                       className={cn(
                         "text-xs",
-                        message.type === "assistant" ? "text-muted-foreground" : "text-primary-foreground/80",
+                        message.type === "assistant" ? "text-gray-500" : "text-gray-300",
                       )}
                     >
                       {formatTimestamp(message.timestamp)}

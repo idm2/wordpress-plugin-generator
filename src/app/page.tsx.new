@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { Download, Eye, RefreshCw, Code, Save, FolderOpen, FileText, Loader2, Wand2, Settings2, Play, FileCode, MessageSquare } from "lucide-react"
+import { Download, Eye, RefreshCw, Code, Save, FolderOpen, FileText, Loader2, Wand2, Settings2 } from "lucide-react"
 import { OpenAI } from "openai"
 import { AdminDetailsModal } from "@/components/admin-details-modal"
 import FileExplorer from "@/components/file-explorer"
@@ -33,15 +33,7 @@ import { generateFileChanges } from "@/lib/diff-utils"
 import { DiffViewModal } from "@/components/diff-view-modal"
 import { cleanupGeneratedCode, cleanAndFormatCode } from '@/lib/code-cleanup'
 import { WordPressConnector, type WordPressConnection } from "@/components/wordpress-connector"
-import { DeployToWordPressButton } from "@/components/deploy-to-wordpress-button"
 import JSZip from 'jszip'
-import { Textarea } from "@/components/ui/textarea"
-import { Input } from "@/components/ui/input"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { AppMenu } from "@/components/app-menu"
-import { DeleteWpPluginModal } from "@/components/delete-wp-plugin-modal"
-import { ReadDebugLogModal } from "@/components/read-debug-log-modal"
-import { WpToolsModals } from "@/components/wp-tools-modals"
 
 interface ChangelogEntry {
   id: string
@@ -98,22 +90,6 @@ export default function PluginGenerator() {
   const [selectedFileForDiff, setSelectedFileForDiff] = useState<string | null>(null)
   const [wordpressConnection, setWordpressConnection] = useState<WordPressConnection | null>(null)
   const [pluginZipBase64, setPluginZipBase64] = useState<string | null>(null)
-  // Add state variables for the plugin errors modal
-  const [isPluginErrorsModalOpen, setIsPluginErrorsModalOpen] = useState(false)
-  const [isCheckingPluginErrors, setIsCheckingPluginErrors] = useState(false)
-  const [pluginErrorsContent, setPluginErrorsContent] = useState<string | null>(null)
-  const [filteredPluginErrors, setFilteredPluginErrors] = useState<string | null>(null)
-  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false)
-  const [isDebugModalOpen, setIsDebugModalOpen] = useState(false)
-  const [isLoadModalOpen, setIsLoadModalOpen] = useState(false)
-  const [isDebugOpen, setIsDebugOpen] = useState(false)
-  const [connectionRestored, setConnectionRestored] = useState(false)
-  const [restoredSiteName, setRestoredSiteName] = useState("")
-  // Add a state variable to store the download function
-  const [downloadPluginFunction, setDownloadPluginFunction] = useState<(() => void) | null>(null);
-  // Add state for the new modals
-  const [isDeletePluginModalOpen, setIsDeletePluginModalOpen] = useState(false)
-  const [isReadDebugLogModalOpen, setIsReadDebugLogModalOpen] = useState(false)
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -233,10 +209,6 @@ export default function PluginGenerator() {
     // Create a new structure from the code
     const structure: FileStructure[] = [];
     
-    // Get the plugin slug for folder naming - ensure consistency
-    const pluginSlug = pluginName ? pluginName.toLowerCase().replace(/\s+/g, '-') : 'plugin';
-    console.log(`Using plugin slug for file structure: ${pluginSlug}`);
-    
     // Try to parse using file markers first
     const fileMarkerRegex = /\/\*\s*FILE:\s*([^\s]+)\s*\*\/\s*([^]*?)(?=\/\*\s*FILE:|$)/g;
     let match;
@@ -244,18 +216,8 @@ export default function PluginGenerator() {
     
     while ((match = fileMarkerRegex.exec(code)) !== null) {
       foundFiles = true;
-      let filePath = match[1].trim();
+      const filePath = match[1].trim();
       const fileContent = match[2].trim();
-      
-      // Ensure the file path doesn't start with the plugin slug to avoid duplication
-      if (filePath.startsWith(pluginSlug + '/') || filePath.startsWith(pluginSlug + '\\')) {
-        // Path already has plugin slug, use as is
-        console.log(`File path already has plugin slug: ${filePath}`);
-      } else {
-        // Add plugin slug to path
-        filePath = `${pluginSlug}/${filePath}`;
-        console.log(`Added plugin slug to file path: ${filePath}`);
-      }
       
       // Add the file to the structure
       addFileToStructure(structure, filePath, fileContent);
@@ -263,85 +225,6 @@ export default function PluginGenerator() {
     
     // If no files were found with markers, try to identify PHP files
     if (!foundFiles) {
-      // Check if the code contains multiple PHP files by looking for class definitions
-      const classRegex = /class\s+([a-zA-Z0-9_]+)/g;
-      const classes = [];
-      let classMatch;
-      
-      while ((classMatch = classRegex.exec(code)) !== null) {
-        classes.push(classMatch[1]);
-      }
-      
-      // If we have multiple classes, this is likely a traditional plugin structure
-      if (classes.length > 1) {
-        console.log(`Detected multiple classes (${classes.length}), likely a traditional plugin structure`);
-        
-        // Look for PHP files with class definitions
-        const phpClassRegex = /(?:\/\*\*[\s\S]*?\*\/\s*)?(?:\/\*[\s\S]*?\*\/\s*)?(<\?php[\s\S]*?class\s+([a-zA-Z0-9_]+)[\s\S]*?(?:\?>|$))/g;
-        let phpMatch;
-        
-        while ((phpMatch = phpClassRegex.exec(code)) !== null) {
-          const phpContent = phpMatch[0];
-          const className = phpMatch[2];
-          
-          // Determine the file name based on class name and content
-          let fileName;
-          
-          // Check if it's an admin class
-          if (className.includes('Admin') || phpContent.includes('admin-specific')) {
-            fileName = `admin/class-${pluginSlug}-admin.php`;
-          }
-          // Check if it's a public class
-          else if (className.includes('Public') || phpContent.includes('public-facing')) {
-            fileName = `public/class-${pluginSlug}-public.php`;
-          }
-          // Check if it's an activator class
-          else if (className.includes('Activator')) {
-            fileName = `includes/class-${pluginSlug}-activator.php`;
-          }
-          // Check if it's a deactivator class
-          else if (className.includes('Deactivator')) {
-            fileName = `includes/class-${pluginSlug}-deactivator.php`;
-          }
-          // Check if it's an i18n class
-          else if (className.includes('i18n') || className.includes('I18n') || phpContent.includes('internationalization')) {
-            fileName = `includes/class-${pluginSlug}-i18n.php`;
-          }
-          // Check if it's a loader class
-          else if (className.includes('Loader')) {
-            fileName = `includes/class-${pluginSlug}-loader.php`;
-          }
-          // Check if it's the main plugin class
-          else if (className.includes(pluginSlug.replace(/-/g, '_')) || 
-                  className.includes(pluginName?.replace(/\s+/g, '_'))) {
-            fileName = `includes/class-${pluginSlug}.php`;
-          }
-          // Default case for other classes
-          else {
-            fileName = `includes/class-${className.toLowerCase()}.php`;
-          }
-          
-          // Ensure the file path includes the plugin slug
-          const filePath = `${pluginSlug}/${fileName}`;
-          console.log(`Adding class file to structure: ${filePath} (${className})`);
-          
-          // Add the file to the structure
-          addFileToStructure(structure, filePath, phpContent);
-        }
-        
-        // Look for the main plugin file (with plugin header)
-        const mainPluginRegex = /(<\?php[\s\S]*?Plugin Name:[\s\S]*?(?:\?>|$))/;
-        const mainPluginMatch = code.match(mainPluginRegex);
-        
-        if (mainPluginMatch) {
-          const mainPluginContent = mainPluginMatch[1];
-          const mainFilePath = `${pluginSlug}/${pluginSlug}.php`;
-          console.log(`Adding main plugin file to structure: ${mainFilePath}`);
-          
-          // Add the main plugin file to the structure
-          addFileToStructure(structure, mainFilePath, mainPluginContent);
-        }
-      } else {
       // Look for PHP files
       const phpFileRegex = /(?:\/\*\*[\s\S]*?\*\/\s*)?(?:\/\*[\s\S]*?\*\/\s*)?(<\?php[\s\S]*?(?:\?>|$))/g;
       let phpMatch;
@@ -351,66 +234,48 @@ export default function PluginGenerator() {
         
         // Try to extract the plugin name from the content
         const pluginNameMatch = phpContent.match(/Plugin Name:\s*([^\r\n]+)/);
-          const extractedPluginName = pluginNameMatch ? pluginNameMatch[1].trim() : null;
+        const pluginName = (pluginNameMatch ? pluginNameMatch[1].trim() : pluginDetails?.name || 'plugin').toLowerCase().replace(/\s+/g, '-');
         
         // Determine the file name based on content
-          let fileName = `${pluginSlug}.php`;
+        let fileName = `${pluginName}.php`;
         
         // Check if it's an admin class
         if (phpContent.includes('class Admin') || phpContent.includes('admin-specific')) {
-            fileName = `admin/class-${pluginSlug}-admin.php`;
+          fileName = `admin/class-${pluginName}-admin.php`;
         } 
         // Check if it's a public class
         else if (phpContent.includes('class Public') || phpContent.includes('public-facing')) {
-            fileName = `public/class-${pluginSlug}-public.php`;
+          fileName = `public/class-${pluginName}-public.php`;
+        }
+        // Check if it's an includes file
+        else if (phpContent.includes('class Activator') || phpContent.includes('class Deactivator') || phpContent.includes('class I18n') || phpContent.includes('class Loader')) {
+          const classMatch = phpContent.match(/class\s+([A-Za-z0-9_]+)/);
+          if (classMatch) {
+            const className = classMatch[1].toLowerCase();
+            fileName = `includes/class-${pluginName}-${className}.php`;
           }
-          // Check if it's an activator class
-          else if (phpContent.includes('class Activator')) {
-            fileName = `includes/class-${pluginSlug}-activator.php`;
-          }
-          // Check if it's a deactivator class
-          else if (phpContent.includes('class Deactivator')) {
-            fileName = `includes/class-${pluginSlug}-deactivator.php`;
-          }
-          // Check if it's an i18n class
-          else if (phpContent.includes('class i18n') || phpContent.includes('internationalization')) {
-            fileName = `includes/class-${pluginSlug}-i18n.php`;
-          }
-          // Check if it's a loader class
-          else if (phpContent.includes('class Loader')) {
-            fileName = `includes/class-${pluginSlug}-loader.php`;
-          }
-          // Check if it's the main plugin class
-          else if (phpContent.includes(`class ${extractedPluginName?.replace(/\s+/g, '_')}`) || 
-                  phpContent.includes(`class ${pluginSlug.replace(/-/g, '_')}`)) {
-            fileName = `includes/class-${pluginSlug}.php`;
-          }
-          // If it has a plugin header, it's the main plugin file
-          else if (phpContent.includes('Plugin Name:')) {
-            fileName = `${pluginSlug}.php`;
-          }
-          
-          // Ensure the file path includes the plugin slug
-          const filePath = `${pluginSlug}/${fileName}`;
-          console.log(`Adding PHP file to structure: ${filePath}`);
+        }
         
         // Add the file to the structure
-          addFileToStructure(structure, filePath, phpContent);
-        }
+        addFileToStructure(structure, fileName, phpContent);
       }
     }
     
     // If still no files were found, create a default structure with a single file
     if (structure.length === 0) {
-      const mainFile = `${pluginSlug}.php`;
-      const filePath = `${pluginSlug}/${mainFile}`;
+      const pluginName = pluginDetails?.name || 'plugin';
+      const mainFile = `${pluginName}.php`;
       
-      console.log(`No files found, creating default structure with main file: ${filePath}`);
-      addFileToStructure(structure, filePath, code);
+      structure.push({
+        name: mainFile,
+        type: 'file',
+        content: code,
+        path: mainFile
+      });
     }
     
     return structure;
-  };
+  }
 
   const addCodeVersion = (code: string, description: string = '', versionNumber?: string) => {
     const versionString = versionNumber || `v${(codeVersions.length + 1).toString().padStart(2, '0')}`
@@ -861,7 +726,7 @@ Functionality: ${fullRequest}`,
     
       // Clean up code to remove artifacts that could break WordPress plugins
       code = cleanAndFormatCode(code);
-
+      
       console.log("Extracted code length:", code.length);
 
       // Create a message without the code blocks
@@ -880,7 +745,7 @@ Functionality: ${fullRequest}`,
       // Ensure the code starts with <?php
       const finalCode = code.startsWith("<?php") ? code : `<?php\n${code}`;
       console.log("Final code length:", finalCode.length);
-
+      
       return {
         message,
         codeUpdate: finalCode,
@@ -1137,10 +1002,18 @@ Functionality: ${fullRequest}`,
 
   // Helper functions to generate class files
   const generateMainPluginFile = (pluginHeader: string, customFunctions: string, pluginName: string) => {
-    return `${pluginHeader}
+    // Override the plugin name if it contains "delete all posts"
+    if (description.toLowerCase().includes("delete all posts")) {
+      pluginName = "AA-delete-all-posts";
+      pluginHeader = pluginHeader.replace(/Plugin Name:.*/, 'Plugin Name: AA delete all posts');
+    }
+    
+    return `<?php
+${pluginHeader}
 
+// If this file is called directly, abort.
 if (!defined('WPINC')) {
-  die;
+    die;
 }
 
 define('${pluginName.toUpperCase()}_VERSION', '${pluginDetails?.version || '1.0.0'}');
@@ -1541,359 +1414,65 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
     }
   };
 
-  // Add a new function to generate the ZIP without downloading it
-  const generatePluginZipOnly = async (): Promise<string | null> => {
-    if (!pluginName) {
-      console.error("Cannot generate plugin ZIP: Missing plugin name");
-      return null;
+  // Modify the downloadPlugin function to use the generatePluginZip function
+  const downloadPlugin = async () => {
+    if (!generatedCode || !pluginName) {
+      setError("Please generate code and enter a plugin name before downloading.");
+      return;
     }
 
     setLoading(true);
-    
+    setError(null);
+
     try {
-      // Create a proper plugin slug for the file name
-      const pluginSlug = pluginName.toLowerCase().replace(/\s+/g, '-');
+      // Generate the ZIP file and get the base64 content
+      const base64content = await generatePluginZip();
       
-      // Use the current file structure from the UI instead of parsing the code
-      // This ensures we include all files exactly as they appear in the file viewer
-      if (fileStructure.length > 0) {
-        console.log("Using file structure from UI for ZIP generation");
-        console.log("File structure:", JSON.stringify(fileStructure, null, 2));
-        
-        // Create a ZIP file
-        const zip = new JSZip();
-        
-        // Function to add files to the ZIP with proper paths
-        const addFilesToZip = (items: FileStructure[], currentPath: string = '') => {
-          for (const item of items) {
-            // Determine the path for this item
-            const itemPath = currentPath ? `${currentPath}/${item.name}` : item.name;
-            
-            // Handle files
-            if (item.type === 'file' && item.content) {
-              console.log(`Adding file to ZIP: ${itemPath}`);
-              zip.file(itemPath, item.content);
-            } 
-            // Handle folders recursively
-            else if (item.type === 'folder' && item.children) {
-              addFilesToZip(item.children, itemPath);
-            }
-          }
-        };
-        
-        // Add all files and folders to the ZIP
-        addFilesToZip(fileStructure);
-        
-        // Generate the ZIP file
-        const zipBlob = await zip.generateAsync({ type: "blob" });
-        
-        // Convert to base64 for WordPress deployment
-        const base64content = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64data = reader.result as string;
-            // Remove the data URL prefix (data:application/zip;base64,)
-            const base64content = base64data.split(',')[1];
-            console.log(`Generated ZIP file with base64 length: ${base64content.length}`);
-            resolve(base64content);
-          };
-          reader.readAsDataURL(zipBlob);
-        });
-        
-        // Set the base64 content for WordPress deployment
-        setPluginZipBase64(base64content);
-        
-        // Create and trigger download link
-        const url = URL.createObjectURL(zipBlob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${pluginSlug}.zip`;
-        document.body.appendChild(link);
-        link.click();
-        
-        // Clean up
-        setTimeout(() => {
-          document.body.removeChild(link);
-          URL.revokeObjectURL(url);
-        }, 100);
-        
-        console.log(`Download triggered for ${pluginSlug}.zip`);
-        
-        return base64content;
-      } else {
-        // If no file structure, fall back to using the code
-        console.log("No file structure found, falling back to code parsing");
-        
-        // Get the current code from the editor
-        let currentCode;
-        
-        if (selectedFile) {
-          // For multi-file plugins, use the current version's code
-          currentCode = currentVersionIndex >= 0 && codeVersions.length > 0
-            ? codeVersions[currentVersionIndex].code
-            : generatedCode;
-          
-          console.log(`Using code from version ${currentVersionIndex + 1} of ${codeVersions.length} for plugin ZIP`);
-        } else {
-          // For single-file plugins, use the editor content directly
-          // This ensures we always use the most up-to-date code
-          const editorElement = document.querySelector('.monaco-editor');
-          if (editorElement && (editorElement as any).editor) {
-            const editorContent = (editorElement as any).editor.getValue();
-            if (editorContent && editorContent.trim().length > 0) {
-              currentCode = editorContent;
-              console.log('Using current editor content for plugin ZIP');
-            } else {
-              currentCode = generatedCode;
-              console.log('Editor content empty, falling back to generatedCode');
-            }
-          } else {
-            currentCode = generatedCode;
-            console.log('Editor not found, falling back to generatedCode');
-          }
-        }
-        
-        if (!currentCode) {
-          throw new Error("No code available to download");
-        }
-        
-        console.log(`Generating plugin ZIP from code (${currentCode.length} characters)`);
-        
-        // Generate ZIP from the current code
-        const base64content = await generatePluginZipFromCode(currentCode);
-        
-        if (!base64content) {
-          throw new Error("Failed to generate plugin ZIP");
-        }
-        
-        console.log(`Generated plugin ZIP with size: ${base64content.length} characters`);
-        
-        // Set the base64 content for WordPress deployment
-        setPluginZipBase64(base64content);
-        
-        // Convert base64 to Blob for download
-        const binaryString = window.atob(base64content);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        const blob = new Blob([bytes], { type: 'application/zip' });
-        
-        // Create and trigger download link
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${pluginSlug}.zip`;
-        document.body.appendChild(link);
-        link.click();
-        
-        // Clean up
-        setTimeout(() => {
-          document.body.removeChild(link);
-          URL.revokeObjectURL(url);
-        }, 100);
-        
-        console.log(`Download triggered for ${pluginSlug}.zip`);
-        
-        return base64content;
+      if (!base64content) {
+        throw new Error("Failed to generate plugin ZIP");
       }
+      
+      // Set the base64 content for WordPress deployment
+      setPluginZipBase64(base64content);
+      
+      // Convert base64 to Blob for download
+      const zipBlob = base64ToBlob(base64content, 'application/zip');
+      
+      // Create a download link
+      const url = window.URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${pluginName}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
     } catch (err) {
-      console.error("ZIP generation error:", err);
-      return null;
+      console.error("Download error:", err);
+      setError(`Error downloading plugin: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // Modify the downloadPlugin function to use generatePluginZipOnly
-  const downloadPlugin = async (event?: React.MouseEvent) => {
-    if (event) {
-      event.preventDefault();
-    }
+  // Helper function to convert base64 to Blob
+  const base64ToBlob = (base64: string, mimeType: string): Blob => {
+    const byteCharacters = atob(base64);
+    const byteArrays = [];
     
-    if (!pluginName) {
-      alert("Please enter a plugin name before downloading.");
-      return;
-    }
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // Get the current code from the editor
-      let currentCode = "";
+    for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+      const slice = byteCharacters.slice(offset, offset + 512);
       
-      // For single-file plugins, use the editor content directly
-      // For multi-file plugins, use the current version's code
-      if (selectedFile && fileStructure.length > 0) {
-        // For multi-file plugins, use the current version's code
-        currentCode = currentVersionIndex >= 0 && codeVersions.length > 0
-          ? codeVersions[currentVersionIndex].code
-          : generatedCode || "";
-        
-        console.log(`Using code from version ${currentVersionIndex + 1} of ${codeVersions.length} for plugin ZIP`);
-      } else {
-        // For single-file plugins, use the editor content directly
-        // This ensures we always use the most up-to-date code
-        const editorElement = document.querySelector('.monaco-editor');
-        if (editorElement && (editorElement as any).editor) {
-          const editorContent = (editorElement as any).editor.getValue();
-          if (editorContent && editorContent.trim().length > 0) {
-            currentCode = editorContent;
-            console.log('Using current editor content for plugin ZIP');
-          } else {
-            currentCode = generatedCode || "";
-            console.log('Editor content empty, falling back to generatedCode');
-          }
-        } else {
-          currentCode = generatedCode || "";
-          console.log('Editor not found, falling back to generatedCode');
-        }
+      const byteNumbers = new Array(slice.length);
+      for (let i = 0; i < slice.length; i++) {
+        byteNumbers[i] = slice.charCodeAt(i);
       }
       
-      if (!currentCode) {
-        throw new Error("No code available to download");
-      }
-      
-      console.log(`Generating plugin ZIP from code (${currentCode.length} characters)`);
-      
-      // Create a ZIP file
-      const zip = new JSZip();
-      
-      // Create a proper plugin slug for the folder name
-      const pluginSlug = pluginName.toLowerCase().replace(/\s+/g, '-');
-      console.log(`Using plugin slug for ZIP: ${pluginSlug}`);
-      
-      // Create a temporary file structure from the code
-      const tempFileStructure = parseCodeToFileStructure(currentCode);
-      
-      console.log("File structure:", JSON.stringify(tempFileStructure, null, 2));
-      
-      // Add files to the ZIP
-      if (tempFileStructure.length > 0) {
-        // Check if this is a traditional plugin structure with multiple files
-        const hasTopLevelPluginSlugFolder = tempFileStructure.some(item => 
-          item.type === 'folder' && item.name === pluginSlug
-        );
-        
-        const hasTraditionalFolders = tempFileStructure.some(item => 
-          item.type === 'folder' && ['admin', 'includes', 'public'].includes(item.name)
-        );
-        
-        const isTraditionalStructure = hasTopLevelPluginSlugFolder || hasTraditionalFolders;
-        
-        console.log(`Detected ${isTraditionalStructure ? 'traditional' : 'simple'} plugin structure`);
-        console.log(`Has top-level plugin slug folder: ${hasTopLevelPluginSlugFolder}`);
-        console.log(`Has traditional folders: ${hasTraditionalFolders}`);
-        
-        // Function to add files to the ZIP with proper paths
-        const addFilesToZip = (items: FileStructure[], currentPath: string = '') => {
-          for (const item of items) {
-            // Determine the path for this item
-            let itemPath = currentPath ? `${currentPath}/${item.name}` : item.name;
-            
-            // For traditional structures with no top-level plugin slug folder, add it
-            if (isTraditionalStructure && !hasTopLevelPluginSlugFolder && currentPath === '') {
-              itemPath = `${pluginSlug}/${item.name}`;
-            } 
-            // For simple structures, always add the plugin slug prefix
-            else if (!isTraditionalStructure && !itemPath.startsWith(`${pluginSlug}/`)) {
-              itemPath = `${pluginSlug}/${itemPath}`;
-            }
-            
-            // Handle files
-            if (item.type === 'file' && item.content) {
-              console.log(`Adding file to ZIP: ${itemPath}`);
-              zip.file(itemPath, item.content);
-            } 
-            // Handle folders recursively
-            else if (item.type === 'folder' && item.children) {
-              addFilesToZip(item.children, itemPath);
-            }
-          }
-        };
-        
-        // Special handling for traditional structures with a top-level plugin slug folder
-        if (isTraditionalStructure && hasTopLevelPluginSlugFolder) {
-          // Find the plugin slug folder
-          const pluginSlugFolder = tempFileStructure.find(item => 
-            item.type === 'folder' && item.name === pluginSlug
-          );
-          
-          if (pluginSlugFolder && pluginSlugFolder.type === 'folder' && pluginSlugFolder.children) {
-            // Add the contents of the plugin slug folder directly
-            for (const item of pluginSlugFolder.children) {
-              let itemPath = `${pluginSlug}/${item.name}`;
-              
-              if (item.type === 'file' && item.content) {
-                console.log(`Adding file to ZIP: ${itemPath}`);
-                zip.file(itemPath, item.content);
-              } else if (item.type === 'folder' && item.children) {
-                addFilesToZip(item.children, itemPath);
-              }
-            }
-            
-            // Add any other top-level files/folders
-            for (const item of tempFileStructure) {
-              if (item.name !== pluginSlug) {
-                let itemPath = `${pluginSlug}/${item.name}`;
-                
-                if (item.type === 'file' && item.content) {
-                  console.log(`Adding file to ZIP: ${itemPath}`);
-                  zip.file(itemPath, item.content);
-                } else if (item.type === 'folder' && item.children) {
-                  addFilesToZip(item.children, itemPath);
-                }
-              }
-            }
-          } else {
-            // Fallback if something went wrong
-            addFilesToZip(tempFileStructure);
-          }
-        } else {
-          // For all other cases, use the standard function
-          addFilesToZip(tempFileStructure);
-        }
-      } else {
-        // If no file structure, just add the main plugin file
-        const mainFileName = `${pluginSlug}.php`;
-        const fullPath = `${pluginSlug}/${mainFileName}`;
-        console.log(`Adding main plugin file to ZIP: ${fullPath}`);
-        zip.file(fullPath, currentCode);
-      }
-      
-      // Generate the ZIP file
-      const zipBlob = await zip.generateAsync({ type: "blob" });
-      
-      // Create a download link
-      const url = URL.createObjectURL(zipBlob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${pluginSlug}.zip`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      
-      // Convert to base64 for WordPress deployment
-      const reader = new FileReader();
-      reader.readAsDataURL(zipBlob);
-      reader.onloadend = () => {
-        const base64data = reader.result as string;
-        // Remove the data URL prefix (data:application/zip;base64,)
-        const base64content = base64data.split(',')[1];
-        console.log(`Generated ZIP file with base64 length: ${base64content.length}`);
-        setPluginZipBase64(base64content);
-      };
-      
-      return true;
-    } catch (err) {
-      console.error("Download error:", err);
-      setError(`Error downloading plugin: ${err instanceof Error ? err.message : "Unknown error"}`);
-      return null;
-    } finally {
-      setLoading(false);
+      const byteArray = new Uint8Array(byteNumbers);
+      byteArrays.push(byteArray);
     }
+    
+    return new Blob(byteArrays, { type: mimeType });
   };
 
   const handleSendMessage = async (content: string, files?: File[]) => {
@@ -2223,8 +1802,6 @@ Plugin name: ${pluginDetails?.name || pluginName}`,
       return
     }
 
-    console.log("Saving plugin state with WordPress connection:", wordpressConnection);
-
     const completeState: CompletePluginState = {
       id: Date.now().toString(),
       name: pluginName,
@@ -2236,20 +1813,8 @@ Plugin name: ${pluginDetails?.name || pluginName}`,
       codeVersions: codeVersions,
       currentVersionIndex: currentVersionIndex,
       fileStructure: fileStructure,
-      changelog: changelog,
-      wordpressConnection: wordpressConnection // Save the WordPress connection
+      changelog: changelog
     }
-
-    console.log("Complete state to be saved:", {
-      id: completeState.id,
-      name: completeState.name,
-      hasCode: !!completeState.code,
-      hasWordPressConnection: !!completeState.wordpressConnection,
-      wordpressConnectionDetails: completeState.wordpressConnection ? {
-        siteUrl: completeState.wordpressConnection.siteUrl,
-        hasFtpDetails: !!completeState.wordpressConnection.ftpDetails
-      } : null
-    });
 
     // Create a Blob from the state
     const stateBlob = new Blob([JSON.stringify(completeState, null, 2)], { type: 'application/json' })
@@ -2275,13 +1840,6 @@ Plugin name: ${pluginDetails?.name || pluginName}`,
       const text = await file.text()
       const state: CompletePluginState = JSON.parse(text)
 
-      console.log("Loading plugin state:", {
-        name: state.name,
-        hasCode: !!state.code,
-        hasWordPressConnection: !!state.wordpressConnection,
-        wordpressConnection: state.wordpressConnection
-      });
-
       // Restore all state
       setPluginName(state.name)
       setGeneratedCode(state.code)
@@ -2292,31 +1850,6 @@ Plugin name: ${pluginDetails?.name || pluginName}`,
       setCurrentVersionIndex(state.currentVersionIndex)
       setFileStructure(state.fileStructure)
       setChangelog(state.changelog)
-      
-      // Restore WordPress connection if available
-      if (state.wordpressConnection) {
-        console.log("Restoring WordPress connection:", state.wordpressConnection);
-        
-        try {
-          setWordpressConnection(state.wordpressConnection)
-          localStorage.setItem('wordpressConnection', JSON.stringify(state.wordpressConnection))
-          
-          // Show a notification that the WordPress connection has been restored
-          setConnectionRestored(true)
-          setRestoredSiteName(state.wordpressConnection.siteName || state.wordpressConnection.siteUrl)
-          
-          // Hide the notification after 3 seconds
-          setTimeout(() => {
-            setConnectionRestored(false)
-          }, 3000)
-          
-          console.log("WordPress connection restored successfully");
-        } catch (connErr) {
-          console.error("Error restoring WordPress connection:", connErr);
-        }
-      } else {
-        console.log("No WordPress connection found in the loaded state");
-      }
       
       // Set the selected file to the main plugin file
       setSelectedFile(`${state.name}/${state.name}.php`)
@@ -2497,10 +2030,8 @@ Your response must include:
     setShowVersionUpdateModal(true);
   }
 
-  const handleVersionUpdateSubmit = (newVersion: string, updateDetails?: boolean, updatedDetails?: Partial<PluginDetails>) => {
+  const handleVersionUpdateSubmit = (newVersion: string) => {
     console.log("Version update submitted with new version:", newVersion);
-    console.log("Update details:", updateDetails);
-    console.log("Updated details:", updatedDetails);
     
     if (!pendingCodeUpdate) {
       console.error("No pending code update found when trying to update version");
@@ -2508,96 +2039,41 @@ Your response must include:
       return;
     }
     
-    // Update plugin details with new version and any other updated details
+    // Update plugin details with new version
     if (pluginDetails) {
       console.log("Updating plugin details with new version:", newVersion);
-      let updatedPluginDetails = {
+      setPluginDetails({
         ...pluginDetails,
         version: newVersion
-      };
-      
-      // If updateDetails is true and updatedDetails is provided, update the plugin details
-      if (updateDetails && updatedDetails) {
-        console.log("Updating additional plugin details");
-        updatedPluginDetails = {
-          ...updatedPluginDetails,
-          ...(updatedDetails.name && { name: updatedDetails.name }),
-          ...(updatedDetails.description && { description: updatedDetails.description }),
-          ...(updatedDetails.author && { author: updatedDetails.author }),
-          ...(updatedDetails.uri && { uri: updatedDetails.uri })
-        };
-      }
-      
-      setPluginDetails(updatedPluginDetails);
+      })
     }
     
-    // Start with updating the version in the plugin code header
+    // Update version in the plugin code header
     console.log("Updating version in plugin code header");
-    let updatedCode = pendingCodeUpdate.replace(
+    const updatedCode = pendingCodeUpdate.replace(
       /(\* Version:\s*)([0-9.]+)/,
       `$1${newVersion}`
-    );
-    
-    // If updateDetails is true and updatedDetails is provided, update other header fields
-    if (updateDetails && updatedDetails) {
-      console.log("Updating additional plugin header fields");
-      
-      // Update Plugin Name
-      if (updatedDetails.name) {
-        updatedCode = updatedCode.replace(
-          /(\* Plugin Name:\s*)(.+?)(\r?\n)/,
-          `$1${updatedDetails.name}$3`
-        );
-      }
-      
-      // Update Description
-      if (updatedDetails.description) {
-        updatedCode = updatedCode.replace(
-          /(\* Description:\s*)(.+?)(\r?\n)/,
-          `$1${updatedDetails.description}$3`
-        );
-      }
-      
-      // Update Author
-      if (updatedDetails.author) {
-        updatedCode = updatedCode.replace(
-          /(\* Author:\s*)(.+?)(\r?\n)/,
-          `$1${updatedDetails.author}$3`
-        );
-      }
-      
-      // Update Plugin URI
-      if (updatedDetails.uri) {
-        updatedCode = updatedCode.replace(
-          /(\* Plugin URI:\s*)(.+?)(\r?\n)/,
-          `$1${updatedDetails.uri}$3`
-        );
-      }
-    }
+    )
     
     // Update the generated code
     console.log("Setting generated code with updated version");
-    setGeneratedCode(updatedCode);
+    setGeneratedCode(updatedCode)
     
     // Create a new file structure
     console.log("Creating new file structure");
-    createFileStructure(updatedCode);
+    createFileStructure(updatedCode)
     
     // Add a new version to the code versions
     console.log("Adding new code version");
-    const versionDescription = updateDetails 
-      ? `Updated to version ${newVersion} with modified plugin details` 
-      : `Updated to version ${newVersion}`;
-    
-    addCodeVersion(updatedCode, versionDescription, `v${newVersion}`);
+    addCodeVersion(updatedCode, `Updated to version ${newVersion}`, `v${newVersion}`)
     
     // Clear the pending code update
     console.log("Clearing pending code update");
-    setPendingCodeUpdate(null);
+    setPendingCodeUpdate(null)
     
     // Close the modal
     console.log("Closing version update modal");
-    setShowVersionUpdateModal(false);
+    setShowVersionUpdateModal(false)
   }
 
   const extractCustomFunctions = (code: string) => {
@@ -2708,28 +2184,28 @@ Your response must include:
 
   // Add effect to load chat history from localStorage on mount
   useEffect(() => {
+    // Always clear localStorage on page load for a fresh session
+    console.log("Starting fresh session, clearing localStorage");
+    localStorage.clear();
+    
     // Check for force_new_session parameter in URL and remove it if present
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('force_new_session')) {
-      // Clear localStorage for a fresh session if force_new_session is in the URL
-      console.log("Force new session parameter detected, clearing localStorage");
-      localStorage.clear();
-      
       // Redirect to clean URL without the parameter
       window.history.replaceState({}, document.title, window.location.pathname);
-      return;
     }
+    
+    // Skip loading from localStorage since we just cleared it
+    return;
+    
+    // The code below will not execute due to the return statement above
+    // Keeping it for reference in case we need to revert this change
     
     // Load saved state from localStorage
     const savedMessages = localStorage.getItem('messages')
     const savedCodeVersions = localStorage.getItem('codeVersions')
     const savedPluginDetails = localStorage.getItem('pluginDetails')
     const savedGeneratedCode = localStorage.getItem('generatedCode')
-    const savedGeneratedPlugin = localStorage.getItem('generatedPlugin')
-    const savedFileStructure = localStorage.getItem('fileStructure')
-    const savedSelectedFile = localStorage.getItem('selectedFile')
-    
-    console.log("Loading session from localStorage");
     
     if (savedMessages) {
       try {
@@ -2754,7 +2230,6 @@ Your response must include:
         const details = JSON.parse(savedPluginDetails as string)
         setPluginDetails(details)
         setPluginName(details.name)
-        setHasFilledDetails(true)
       } catch (e) {
         console.error("Error parsing saved plugin details:", e)
       }
@@ -2764,33 +2239,15 @@ Your response must include:
       try {
         setGeneratedCode(savedGeneratedCode as string)
         
-        // Create file structure from the saved code if not already saved
-        if (!savedFileStructure) {
-          try {
-            createFileStructure(savedGeneratedCode as string)
-          } catch (err) {
-            console.error("Error creating file structure:", err)
-          }
+        // Create file structure from the saved code
+        try {
+          createFileStructure(savedGeneratedCode as string)
+        } catch (err) {
+          console.error("Error creating file structure:", err)
         }
       } catch (e) {
         console.error("Error setting saved generated code:", e)
       }
-    }
-    
-    if (savedGeneratedPlugin === 'true') {
-      setGeneratedPlugin(true)
-    }
-    
-    if (savedFileStructure) {
-      try {
-        setFileStructure(JSON.parse(savedFileStructure as string))
-      } catch (e) {
-        console.error("Error parsing saved file structure:", e)
-      }
-    }
-    
-    if (savedSelectedFile) {
-      setSelectedFile(savedSelectedFile)
     }
   }, [])
 
@@ -2818,20 +2275,10 @@ Your response must include:
       localStorage.setItem("generatedCode", generatedCode)
     }
     
-    // Save file structure
-    if (fileStructure.length > 0) {
-      localStorage.setItem("fileStructure", JSON.stringify(fileStructure))
-    }
-    
-    // Save selected file
-    if (selectedFile) {
-      localStorage.setItem("selectedFile", selectedFile)
-    }
-    
     // Log the current state before saving to localStorage
     console.log("Saving generatedPlugin to localStorage:", generatedPlugin)
     localStorage.setItem("generatedPlugin", String(generatedPlugin))
-  }, [messages, codeVersions, pluginDetails, generatedCode, generatedPlugin, fileStructure, selectedFile])
+  }, [messages, codeVersions, pluginDetails, generatedCode, generatedPlugin])
 
   // Add a new useEffect specifically for initializing generatedPlugin from localStorage
   useEffect(() => {
@@ -2889,10 +2336,6 @@ Your response must include:
 
   // Add a function to handle new session
   const handleNewSession = () => {
-    // Clear localStorage for a fresh session
-    console.log("Starting new session, clearing localStorage");
-    localStorage.clear();
-    
     // Clear messages
     setMessages([]);
     // Reset generated plugin flag
@@ -2906,23 +2349,6 @@ Your response must include:
     // Reset plugin details
     setPluginDetails(null);
     setHasFilledDetails(false);
-    // Reset code versions
-    setCodeVersions([]);
-    setCurrentVersionIndex(-1);
-    // Reset generated code
-    setGeneratedCode("");
-    // Reset changelog
-    setChangelog([]);
-    // Reset plugin name
-    setPluginName("my-plugin");
-    // Reset WordPress connection
-    setWordpressConnection(null);
-    // Reset plugin ZIP
-    setPluginZipBase64(null);
-    
-    // Force a page reload to ensure all state is reset
-    // This ensures any cached state in React components is also cleared
-    window.location.href = window.location.pathname + '?force_new_session=true';
   }
 
   // Add this effect to load saved connection from localStorage
@@ -2943,646 +2369,24 @@ Your response must include:
     localStorage.setItem('wordpressConnection', JSON.stringify(connection))
   }
 
-  // Add a new function to generate a ZIP file from specific code
-  const generatePluginZipFromCode = async (code: string) => {
-    if (!code || !pluginName) return null;
-    
-    try {
-      // Create a ZIP file
-      const zip = new JSZip();
-      
-      // Create a proper plugin slug for the folder name - ensure consistency
-      const pluginSlug = pluginName.toLowerCase().replace(/\s+/g, '-');
-      console.log(`Using plugin slug for ZIP: ${pluginSlug}`);
-      
-      // Create a temporary file structure from the code
-      const tempFileStructure = parseCodeToFileStructure(code);
-      
-      console.log("File structure:", JSON.stringify(tempFileStructure, null, 2));
-      
-      // Add files to the ZIP
-      if (tempFileStructure.length > 0) {
-        // Check if this is a traditional plugin structure with multiple files
-        const hasTopLevelPluginSlugFolder = tempFileStructure.some(item => 
-          item.type === 'folder' && item.name === pluginSlug
-        );
-        
-        // Check for traditional folders in the structure
-        const hasTraditionalFolders = (() => {
-          // Function to check for traditional folders recursively
-          const checkForTraditionalFolders = (items: FileStructure[], inPluginSlugFolder = false) => {
-            for (const item of items) {
-              if (item.type === 'folder') {
-                // If this is the plugin slug folder, check its children
-                if (item.name === pluginSlug && item.children) {
-                  if (checkForTraditionalFolders(item.children, true)) {
-                    return true;
-                  }
-                }
-                
-                // Check if this is a traditional folder
-                if (['admin', 'includes', 'public'].includes(item.name)) {
-                  return true;
-                }
-                
-                // Check children recursively
-                if (item.children && checkForTraditionalFolders(item.children, inPluginSlugFolder)) {
-                  return true;
-                }
-              }
-            }
-            return false;
-          };
-          
-          return checkForTraditionalFolders(tempFileStructure);
-        })();
-        
-        // Check for multiple PHP files in the structure
-        const hasMultiplePhpFiles = (() => {
-          let phpFileCount = 0;
-          
-          // Function to count PHP files recursively
-          const countPhpFiles = (items: FileStructure[]) => {
-            for (const item of items) {
-              if (item.type === 'file' && item.name.endsWith('.php')) {
-                phpFileCount++;
-                if (phpFileCount > 1) {
-                  return true;
-                }
-              } else if (item.type === 'folder' && item.children) {
-                if (countPhpFiles(item.children)) {
-                  return true;
-                }
-              }
-            }
-            return false;
-          };
-          
-          return countPhpFiles(tempFileStructure);
-        })();
-        
-        // Force traditional structure if we have multiple classes in the code
-        const hasMultipleClasses = (() => {
-          const classRegex = /class\s+([a-zA-Z0-9_]+)/g;
-          const classes = [];
-          let match;
-          
-          while ((match = classRegex.exec(code)) !== null) {
-            classes.push(match[1]);
-          }
-          
-          return classes.length > 1;
-        })();
-        
-        // Determine if this is a traditional structure
-        const isTraditionalStructure = hasTopLevelPluginSlugFolder || hasTraditionalFolders || hasMultiplePhpFiles || hasMultipleClasses;
-        
-        console.log(`Detected ${isTraditionalStructure ? 'traditional' : 'simple'} plugin structure`);
-        console.log(`Has top-level plugin slug folder: ${hasTopLevelPluginSlugFolder}`);
-        console.log(`Has traditional folders: ${hasTraditionalFolders}`);
-        console.log(`Has multiple PHP files: ${hasMultiplePhpFiles}`);
-        console.log(`Has multiple classes: ${hasMultipleClasses}`);
-        
-        // If this is a traditional structure but we don't have proper folders,
-        // create a traditional structure from the code
-        if (isTraditionalStructure && !hasTraditionalFolders && !hasMultiplePhpFiles) {
-          console.log("Creating traditional structure from code");
-          
-          // Extract classes from the code
-          const classRegex = /class\s+([a-zA-Z0-9_]+)[\s\S]*?{[\s\S]*?}/g;
-          let classMatch;
-          
-          // Create traditional folders
-          const adminFolder = `${pluginSlug}/admin`;
-          const includesFolder = `${pluginSlug}/includes`;
-          const publicFolder = `${pluginSlug}/public`;
-          
-          // Extract the main plugin file (with plugin header)
-          const mainPluginRegex = /(<\?php[\s\S]*?Plugin Name:[\s\S]*?)(?=class|$)/;
-          const mainPluginMatch = code.match(mainPluginRegex);
-          
-          if (mainPluginMatch) {
-            const mainPluginContent = mainPluginMatch[1];
-            const mainFilePath = `${pluginSlug}/${pluginSlug}.php`;
-            console.log(`Adding main plugin file to ZIP: ${mainFilePath}`);
-            zip.file(mainFilePath, mainPluginContent);
-          }
-          
-          // Extract and add class files
-          while ((classMatch = classRegex.exec(code)) !== null) {
-            const fullMatch = classMatch[0];
-            const className = classMatch[1];
-            
-            // Determine the file path based on class name
-            let filePath;
-            
-            if (className.includes('Admin')) {
-              filePath = `${adminFolder}/class-${pluginSlug}-admin.php`;
-            } else if (className.includes('Public')) {
-              filePath = `${publicFolder}/class-${pluginSlug}-public.php`;
-            } else if (className.includes('Activator')) {
-              filePath = `${includesFolder}/class-${pluginSlug}-activator.php`;
-            } else if (className.includes('Deactivator')) {
-              filePath = `${includesFolder}/class-${pluginSlug}-deactivator.php`;
-            } else if (className.includes('i18n') || className.includes('I18n')) {
-              filePath = `${includesFolder}/class-${pluginSlug}-i18n.php`;
-            } else if (className.includes('Loader')) {
-              filePath = `${includesFolder}/class-${pluginSlug}-loader.php`;
-            } else if (className.includes(pluginSlug.replace(/-/g, '_'))) {
-              filePath = `${includesFolder}/class-${pluginSlug}.php`;
-            } else {
-              filePath = `${includesFolder}/class-${className.toLowerCase()}.php`;
-            }
-            
-            // Add PHP opening tag if not present
-            let classContent = fullMatch;
-            if (!classContent.trim().startsWith('<?php')) {
-              classContent = `<?php\n${classContent}`;
-            }
-            
-            console.log(`Adding class file to ZIP: ${filePath} (${className})`);
-            zip.file(filePath, classContent);
-          }
-          
-          // Add index.php files to each folder for security
-          const indexPhpContent = "<?php\n// Silence is golden.";
-          zip.file(`${pluginSlug}/index.php`, indexPhpContent);
-          zip.file(`${adminFolder}/index.php`, indexPhpContent);
-          zip.file(`${includesFolder}/index.php`, indexPhpContent);
-          zip.file(`${publicFolder}/index.php`, indexPhpContent);
-          
-          // Add readme.txt
-          const readmeContent = `=== ${pluginName} ===\nContributors: (your name)\nTags: tag1, tag2\nRequires at least: 4.7\nTested up to: 5.9\nStable tag: 1.0.0\nLicense: GPLv2 or later\nLicense URI: http://www.gnu.org/licenses/gpl-2.0.html\n\nA brief description of the plugin.`;
-          zip.file(`${pluginSlug}/readme.txt`, readmeContent);
-          
-        } else {
-          // Function to add files to the ZIP with proper paths
-          const addFilesToZip = (items: FileStructure[], currentPath: string = '') => {
-            for (const item of items) {
-              // Determine the path for this item
-              let itemPath = currentPath ? `${currentPath}/${item.name}` : item.name;
-              
-              // For traditional structures with no top-level plugin slug folder, add it
-              if (isTraditionalStructure && !hasTopLevelPluginSlugFolder && currentPath === '') {
-                itemPath = `${pluginSlug}/${item.name}`;
-              } 
-              // For simple structures, always add the plugin slug prefix
-              else if (!isTraditionalStructure && !itemPath.startsWith(`${pluginSlug}/`)) {
-                itemPath = `${pluginSlug}/${itemPath}`;
-              }
-              
-              // Handle files
-              if (item.type === 'file' && item.content) {
-                console.log(`Adding file to ZIP: ${itemPath}`);
-                zip.file(itemPath, item.content);
-              } 
-              // Handle folders recursively
-              else if (item.type === 'folder' && item.children) {
-                addFilesToZip(item.children, itemPath);
-              }
-            }
-          };
-          
-          // Special handling for traditional structures with a top-level plugin slug folder
-          if (isTraditionalStructure && hasTopLevelPluginSlugFolder) {
-            // Find the plugin slug folder
-            const pluginSlugFolder = tempFileStructure.find(item => 
-              item.type === 'folder' && item.name === pluginSlug
-            );
-            
-            if (pluginSlugFolder && pluginSlugFolder.type === 'folder' && pluginSlugFolder.children) {
-              // Add the contents of the plugin slug folder directly
-              for (const item of pluginSlugFolder.children) {
-                let itemPath = `${pluginSlug}/${item.name}`;
-                
-                if (item.type === 'file' && item.content) {
-                  console.log(`Adding file to ZIP: ${itemPath}`);
-                  zip.file(itemPath, item.content);
-                } else if (item.type === 'folder' && item.children) {
-                  addFilesToZip(item.children, itemPath);
-                }
-              }
-              
-              // Add any other top-level files/folders
-              for (const item of tempFileStructure) {
-                if (item.name !== pluginSlug) {
-                  let itemPath = `${pluginSlug}/${item.name}`;
-                  
-                  if (item.type === 'file' && item.content) {
-                    console.log(`Adding file to ZIP: ${itemPath}`);
-                    zip.file(itemPath, item.content);
-                  } else if (item.type === 'folder' && item.children) {
-                    addFilesToZip(item.children, itemPath);
-                  }
-                }
-              }
-            } else {
-              // Fallback if something went wrong
-              addFilesToZip(tempFileStructure);
-            }
-          } else {
-            // For all other cases, use the standard function
-            addFilesToZip(tempFileStructure);
-          }
-        }
-      } else {
-        // If no file structure, just add the main plugin file
-        const mainFileName = `${pluginSlug}.php`;
-        const fullPath = `${pluginSlug}/${mainFileName}`;
-        console.log(`Adding main plugin file to ZIP: ${fullPath}`);
-        zip.file(fullPath, code);
-      }
-      
-      // Generate the ZIP file
-      const zipBlob = await zip.generateAsync({ type: "blob" });
-      
-      // Convert to base64
-      return new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64data = reader.result as string;
-          // Remove the data URL prefix (data:application/zip;base64,)
-          const base64content = base64data.split(',')[1];
-          resolve(base64content);
-        };
-        reader.readAsDataURL(zipBlob);
-      });
-    } catch (error) {
-      console.error("Error generating plugin ZIP:", error);
-      return null;
-    }
-  };
-
-  // Add a function to scan for plugin errors
-  const scanPluginErrors = async () => {
-    if (!wordpressConnection) {
-      // Open the WordPress connection modal
-      const connectButton = document.querySelector('.wordpress-connector-button') as HTMLButtonElement
-      if (connectButton) {
-        connectButton.click()
-      }
-      return
-    }
-    
-    setIsCheckingPluginErrors(true)
-    setPluginErrorsContent(null)
-    setFilteredPluginErrors(null)
-    
-    try {
-      const response = await fetch("/api/wordpress/check-debug-log", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ 
-          apiKey: wordpressConnection.apiKey,
-          siteUrl: wordpressConnection.siteUrl,
-          pluginSlug: pluginName ? pluginName.toLowerCase().replace(/\s+/g, '-') : undefined
-        }),
-      })
-      
-      const data = await response.json()
-      
-      if (!response.ok) {
-        throw new Error(data.message || "Failed to check debug log")
-      }
-      
-      // Store the full debug log
-      setPluginErrorsContent(data.debug_log || "No debug log content found.")
-      
-      // Filter errors related to the current plugin
-      if (data.debug_log && pluginName) {
-        const pluginSlug = pluginName.toLowerCase().replace(/\s+/g, '-')
-        const lines = data.debug_log.split('\n')
-        const pluginRelatedErrors = lines.filter((line: string) => 
-          line.toLowerCase().includes(pluginSlug) || 
-          line.toLowerCase().includes(pluginName.toLowerCase())
-        )
-        
-        if (pluginRelatedErrors.length > 0) {
-          setFilteredPluginErrors(pluginRelatedErrors.join('\n'))
-        } else {
-          setFilteredPluginErrors("No errors related to this plugin were found in the debug log.")
-        }
-      } else {
-        setFilteredPluginErrors("No plugin-specific errors found.")
-      }
-      
-      setIsPluginErrorsModalOpen(true)
-    } catch (err) {
-      console.error("Error checking plugin errors:", err)
-      setPluginErrorsContent(`Error checking plugin errors: ${err instanceof Error ? err.message : "Unknown error"}`)
-      setFilteredPluginErrors(null)
-      setIsPluginErrorsModalOpen(true)
-    } finally {
-      setIsCheckingPluginErrors(false)
-    }
-  }
-
-  // Add a function to send plugin errors to discussion
-  const sendPluginErrorsToDiscussion = () => {
-    const errorContent = filteredPluginErrors || pluginErrorsContent
-    if (!errorContent) return
-    
-    const message = `I'm having issues with my WordPress plugin "${pluginName}". Here's the debug log content:\n\n\`\`\`\n${errorContent}\n\`\`\`\n\nPlease help me identify and fix the issues in my plugin code.`
-    
-    handleSendMessage(message)
-    setIsPluginErrorsModalOpen(false)
-  }
-
-  // Create a download function that can be passed to components
-  const directDownloadPlugin = async (): Promise<string | null> => {
-    try {
-      console.log("Direct download plugin function called");
-      
-      // Debug message to help troubleshoot issues
-      console.log("Current state:", {
-        generatedCode: !!generatedCode,
-        pluginName,
-        generatedPlugin,
-        pluginZipBase64: pluginZipBase64 ? `${pluginZipBase64.substring(0, 20)}... (${pluginZipBase64.length} chars)` : null
-      });
-      
-      // If we already have a ZIP, use it
-      if (pluginZipBase64) {
-        console.log("Using existing ZIP data");
-        
-        try {
-          // Create a Blob from the base64 data
-          const byteCharacters = atob(pluginZipBase64);
-          const byteArrays = [];
-          
-          for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-            const slice = byteCharacters.slice(offset, offset + 512);
-            
-            const byteNumbers = new Array(slice.length);
-            for (let i = 0; i < slice.length; i++) {
-              byteNumbers[i] = slice.charCodeAt(i);
-            }
-            
-            const byteArray = new Uint8Array(byteNumbers);
-            byteArrays.push(byteArray);
-          }
-          
-          const blob = new Blob(byteArrays, { type: 'application/zip' });
-          
-          // Format the plugin slug for the filename
-          const formattedPluginName = pluginName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-          
-          // Create a download link
-          const link = document.createElement('a');
-          link.href = URL.createObjectURL(blob);
-          link.download = `${formattedPluginName}.zip`;
-          document.body.appendChild(link);
-          link.click();
-          
-          // Clean up
-          document.body.removeChild(link);
-          URL.revokeObjectURL(link.href);
-          
-          console.log("Download triggered successfully");
-          return pluginZipBase64;
-        } catch (err) {
-          console.error("Error creating download from existing ZIP:", err);
-          alert("Error creating download. Please try again.");
-          return null;
-        }
-      }
-      
-      // If no plugin name, alert the user
-      if (!pluginName) {
-        alert("Please enter a plugin name first");
-        return null;
-      }
-      
-      // If no plugin has been generated yet, alert the user
-      if (!generatedPlugin) {
-        alert("No plugin has been generated yet");
-        return null;
-      }
-      
-      // Generate the plugin ZIP
-      console.log("Generating plugin ZIP");
-      const zipBase64 = await generatePluginZipOnly();
-      
-      if (zipBase64) {
-        console.log(`Generated ZIP successfully (${zipBase64.length} characters)`);
-        return zipBase64;
-      } else {
-        console.error("Failed to generate ZIP");
-        return null;
-      }
-    } catch (err) {
-      console.error("Download error:", err);
-      alert("Failed to generate plugin ZIP. Please try again.");
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Set the download function when the component mounts
-  useEffect(() => {
-    setDownloadPluginFunction(() => async () => {
-      await directDownloadPlugin();
-    });
-  }, [generatedCode, pluginName]);
-
-  // Add a function to download the WordPress Generator Connector plugin
-  const downloadConnectorPlugin = async () => {
-    console.log("Downloading WordPress Generator Connector plugin");
-    
-    try {
-      // Fetch the connector plugin from the API
-      const response = await fetch("/api/download-connector-plugin");
-      
-      if (!response.ok) {
-        throw new Error("Failed to download connector plugin");
-      }
-      
-      const data = await response.json();
-      
-      if (!data.base64content) {
-        throw new Error("Invalid connector plugin data");
-      }
-      
-      console.log("Connector plugin downloaded, initiating browser download");
-      
-      // Create a Blob from the base64 data
-      const byteCharacters = atob(data.base64content);
-      const byteArrays = [];
-      
-      for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-        const slice = byteCharacters.slice(offset, offset + 512);
-        
-        const byteNumbers = new Array(slice.length);
-        for (let i = 0; i < slice.length; i++) {
-          byteNumbers[i] = slice.charCodeAt(i);
-        }
-        
-        const byteArray = new Uint8Array(byteNumbers);
-        byteArrays.push(byteArray);
-      }
-      
-      const blob = new Blob(byteArrays, {type: 'application/zip'});
-      const url = URL.createObjectURL(blob);
-      
-      // Create and trigger download link
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = "wordpress-plugin-generator-connector.zip";
-      document.body.appendChild(a);
-      a.click();
-      
-      // Clean up
-      setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }, 100);
-      
-      console.log("Connector plugin download triggered successfully");
-    } catch (error) {
-      console.error("Error downloading connector plugin:", error);
-      alert("Failed to download connector plugin. Please try again.");
-    }
-  };
-
-  // Add functions to handle opening the new modals
-  const handleOpenDeletePluginModal = () => {
-    if (!wordpressConnection?.ftpDetails?.host) {
-      alert("FTP/SFTP details are required to delete a WordPress plugin. Please add them in the WordPress connection settings.")
-      // Open the WordPress connection modal
-      const connectButton = document.querySelector('.wordpress-connector-button') as HTMLButtonElement
-      if (connectButton) {
-        connectButton.click()
-      }
-      return
-    }
-    setIsDeletePluginModalOpen(true)
-  }
-  
-  const handleOpenReadDebugLogModal = () => {
-    if (!wordpressConnection?.ftpDetails?.host) {
-      alert("FTP/SFTP details are required to read WordPress debug logs. Please add them in the WordPress connection settings.")
-      // Open the WordPress connection modal
-      const connectButton = document.querySelector('.wordpress-connector-button') as HTMLButtonElement
-      if (connectButton) {
-        connectButton.click()
-      }
-      return
-    }
-    setIsReadDebugLogModalOpen(true)
-  }
-
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col h-screen">
       <div className="flex items-center justify-between p-4 flex-shrink-0">
         <h1 className="text-2xl font-bold">WordPress Plugin Generator</h1>
-        
-        {/* WordPress Connection Restored Notification */}
-        {connectionRestored && (
-          <div className="fixed top-4 right-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded z-50 shadow-md">
-            <div className="flex items-center">
-              <div className="py-1">
-                <svg className="fill-current h-6 w-6 text-green-500 mr-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
-                  <path d="M2.93 17.07A10 10 0 1 1 17.07 2.93 10 10 0 0 1 2.93 17.07zm12.73-1.41A8 8 0 1 0 4.34 4.34a8 8 0 0 0 11.32 11.32zM9 11V9h2v6H9v-4zm0-6h2v2H9V5z"/>
-                </svg>
-              </div>
-              <div>
-                <p className="font-bold">WordPress Connection Restored</p>
-                <p className="text-sm">Connected to {restoredSiteName}</p>
-              </div>
-            </div>
-          </div>
-        )}
-        
-        <div className="flex items-center space-x-2">
-          <style jsx global>{`
-            .wordpress-connector-button {
-              height: 2.1rem !important;
-            }
-          `}</style>
+        <div className="flex gap-2">
           <WordPressConnector 
             onConnect={handleWordPressConnect}
             currentConnection={wordpressConnection}
-            onDownloadClick={directDownloadPlugin}
-            onDownloadConnectorPlugin={downloadConnectorPlugin}
           />
-          
-          {/* Replace existing buttons with AppMenu */}
-          <AppMenu 
-            // Project menu props
-            onNewSession={handleNewSession}
-            onEditDetails={() => setShowPluginDetailsModal(true)}
-            onLoadSession={() => document.getElementById('load-plugin-input')?.click()}
-            onSaveSession={handleSavePlugin}
-            hasFilledDetails={hasFilledDetails}
-            generatedPlugin={generatedPlugin}
-            loading={loading}
-            
-            // Version control menu props
-            codeVersions={codeVersions}
-            currentVersionIndex={currentVersionIndex}
-            onVersionChange={(index) => {
-              setCurrentVersionIndex(index);
-              setGeneratedCode(codeVersions[index].code);
-              createFileStructure(codeVersions[index].code);
-            }}
-            onViewChanges={handleViewVersionChanges}
-            
-            // Deploy menu props
-            onDownloadPlugin={directDownloadPlugin}
-            onDeployToWordPress={() => {
-              // Open the WordPress deployment modal
-              const deployButton = document.querySelector('.deploy-to-wordpress-button') as HTMLButtonElement;
-              if (deployButton) {
-                deployButton.click();
-              }
-            }}
-            onViewCodeSnippet={() => setIsCodeSnippetModalOpen(true)}
-            pluginName={pluginName}
-            wordpressConnection={wordpressConnection}
-            onOpenConnectModal={() => {
-              // Open the WordPress connection modal
-              const connectButton = document.querySelector('.wordpress-connector-button') as HTMLButtonElement;
-              if (connectButton) {
-                connectButton.click();
-              }
-            }}
-            
-            // Tools menu props
-            onScanPluginErrors={scanPluginErrors}
-            isCheckingPluginErrors={isCheckingPluginErrors}
-            onEmergencyAccess={() => {
-              // Open the emergency access modal
-              const emergencyButton = document.querySelector('.emergency-access-button') as HTMLButtonElement;
-              if (emergencyButton) {
-                emergencyButton.click();
-              }
-            }}
-            onDeletePlugin={() => {
-              // Call the window.wpTools.openDeletePluginModal function
-              if (typeof window !== 'undefined' && window.wpTools) {
-                window.wpTools.openDeletePluginModal();
-              }
-            }}
-            onReadDebugLog={() => {
-              // Call the window.wpTools.openReadDebugLogModal function
-              if (typeof window !== 'undefined' && window.wpTools) {
-                window.wpTools.openReadDebugLogModal();
-              }
-            }}
-            enableDebugging={wordpressConnection?.enableDebugging}
-          />
-          
-          {/* Hidden file input for loading saved sessions */}
-          <input
-            type="file"
-            accept=".json"
-            onChange={handleLoadPlugin}
-            className="hidden"
-            id="load-plugin-input"
-          />
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleNewSession}
+            className="flex items-center gap-1"
+          >
+            <RefreshCw className="h-4 w-4" />
+            New Session
+          </Button>
         </div>
       </div>
       
@@ -3594,6 +2398,27 @@ Your response must include:
               <ModelSelector selectedModel={selectedModel} onModelChange={setSelectedModel} />
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              {/* EDIT DETAILS Button - Only show after plugin generation */}
+              {hasFilledDetails && generatedPlugin && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        onClick={() => setShowPluginDetailsModal(true)}
+                        variant="outline"
+                        size="sm"
+                      >
+                        <Settings2 className="h-4 w-4 mr-1" />
+                        Edit Details
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Edit plugin details</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+
               {/* START/GENERATE Button - Only show before plugin generation */}
               {!generatedPlugin && (
                 <TooltipProvider>
@@ -3613,15 +2438,16 @@ Your response must include:
                         disabled={loading || isCreatingPreview}
                         className={
                           !hasFilledDetails
-                            ? "h-9 w-9 bg-black hover:bg-black/90 text-white"
-                            : "h-9 w-9 bg-purple-600 hover:bg-purple-700 text-white"
+                            ? "bg-black hover:bg-black/90 text-white"
+                            : "bg-purple-600 hover:bg-purple-700 text-white"
                         }
-                        size="icon"
                       >
                         {loading ? (
-                          <RefreshCw className="h-4 w-4 animate-spin" />
+                          <>
+                            <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                          </>
                         ) : (
-                          <Play className="h-4 w-4" />
+                          hasFilledDetails ? "Generate" : "Start"
                         )}
                       </Button>
                     </TooltipTrigger>
@@ -3629,12 +2455,82 @@ Your response must include:
                       <p>
                         {!description && attachedFiles.length === 0
                           ? "Please add a description or attach files first"
-                          : hasFilledDetails ? "Generate your WordPress plugin" : "Start creating your plugin"}
+                          : "Generate your WordPress plugin"}
                       </p>
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               )}
+
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleLoadPlugin}
+                className="hidden"
+                id="load-plugin-input"
+              />
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => document.getElementById('load-plugin-input')?.click()}
+                      disabled={loading}
+                    >
+                      <FolderOpen className="mr-2 h-4 w-4" />
+                      Load
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Load a previously saved plugin state</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              <div className="flex gap-2">
+                  pluginZip={pluginZipBase64 || ''}
+                  pluginName={pluginName}
+                  connection={wordpressConnection}
+                  onOpenConnectModal={() => {
+                    // Open the WordPress connection modal
+                    const connectButton = document.querySelector('.wordpress-connector-button') as HTMLButtonElement
+                    if (connectButton) {
+                      connectButton.click()
+                    }
+                  }}
+                  disabled={!generatedCode}
+                  generatedCode={!!generatedCode}
+                  onDownloadClick={downloadPlugin}
+                />
+                
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button onClick={() => setIsCodeSnippetModalOpen(true)} variant="outline" disabled={!generatedCode}>
+                        <Code className="h-4 w-4 mr-2" />
+                        Snippet
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>View a code snippet version of your plugin</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button onClick={handleSavePlugin} variant="outline" disabled={!generatedCode}>
+                        <Save className="h-4 w-4 mr-2" />
+                        Save
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Save your plugin state to a file</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
             </div>
           </div>
           
@@ -3655,11 +2551,55 @@ Your response must include:
             />
           </div>
         </div>
-
+        
         {/* Center Column - File Explorer (15%) */}
         <div className="w-[15%] border-r flex flex-col min-h-0 bg-gray-50">
           <div className="p-2 border-b flex-shrink-0">
             <h2 className="text-sm font-semibold">Files</h2>
+            {codeVersions.length > 0 && (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center">
+                  <span className="text-xs mr-2">Version:</span>
+                  <Select
+                    value={currentVersionIndex.toString()}
+                    onValueChange={(value) => {
+                      const index = parseInt(value)
+                      setCurrentVersionIndex(index)
+                      setGeneratedCode(codeVersions[index].code)
+                      createFileStructure(codeVersions[index].code)
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-[108px] text-xs bg-white">
+                      <SelectValue placeholder="Select version" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white">
+                      {codeVersions.map((version, index) => (
+                        <SelectItem key={version.id} value={index.toString()} className="text-xs">
+                          {version.version}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                {/* Changes button */}
+                {currentVersionIndex > 0 && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="text-xs flex items-center gap-1"
+                    onClick={() => {
+                      if (currentVersionIndex > 0 && codeVersions[currentVersionIndex]) {
+                        handleViewVersionChanges(codeVersions[currentVersionIndex].id);
+                      }
+                    }}
+                  >
+                    <Eye className="h-3.5 w-3.5 mr-1" />
+                    Changes
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex-1 overflow-auto">
             <FileExplorer
@@ -3671,27 +2611,79 @@ Your response must include:
             />
           </div>
         </div>
-
+        
         {/* Right Column - Code Editor (45%) */}
         <div className="w-[45%] flex flex-col min-h-0">
-          {/* Remove the header section with buttons */}
+          <div className="p-4 border-b flex-shrink-0">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">
+                {selectedFile ? selectedFile : "Generated Code"}
+              </h2>
+              <div className="flex gap-2">
+                  pluginZip={pluginZipBase64 || ''}
+                  pluginName={pluginName}
+                  connection={wordpressConnection}
+                  onOpenConnectModal={() => {
+                    // Open the WordPress connection modal
+                    const connectButton = document.querySelector('.wordpress-connector-button') as HTMLButtonElement
+                    if (connectButton) {
+                      connectButton.click()
+                    }
+                  }}
+                  disabled={!generatedCode}
+                  generatedCode={!!generatedCode}
+                  onDownloadClick={downloadPlugin}
+                />
+                
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button onClick={() => setIsCodeSnippetModalOpen(true)} variant="outline" disabled={!generatedCode}>
+                        <Code className="h-4 w-4 mr-2" />
+                        Snippet
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>View a code snippet version of your plugin</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button onClick={handleSavePlugin} variant="outline" disabled={!generatedCode}>
+                        <Save className="h-4 w-4 mr-2" />
+                        Save
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Save your plugin state to a file</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            </div>
+          </div>
+          
           <div className="flex-1 min-h-0">
             <CodeEditor
               selectedFile={selectedFile}
               fileStructure={fileStructure}
-              onCodeChange={(newCode) => {
-                if (selectedFile) {
-                const updatedStructure = updateFileStructure(fileStructure, selectedFile, newCode)
-                setFileStructure(updatedStructure)
-                }
-              }}
               loading={loading}
               streaming={isStreaming}
+              onCodeChange={(newCode) => {
+                if (selectedFile === `${pluginName}/${pluginName}.php`) {
+                  setGeneratedCode(newCode)
+                }
+                const updatedStructure = updateFileStructure(fileStructure, selectedFile, newCode)
+                setFileStructure(updatedStructure)
+              }}
             />
           </div>
         </div>
       </div>
-
+      
       {/* Modals */}
       <CodeSnippetModal
         isOpen={isCodeSnippetModalOpen}
@@ -3705,12 +2697,11 @@ Your response must include:
           console.log("VersionUpdateModal onClose called, setting showVersionUpdateModal to false");
           setShowVersionUpdateModal(false);
         }}
-        onSubmit={(newVersion, updateDetails, updatedDetails) => {
+        onSubmit={(newVersion) => {
           console.log("VersionUpdateModal onSubmit called with newVersion:", newVersion);
-          handleVersionUpdateSubmit(newVersion, updateDetails, updatedDetails);
+          handleVersionUpdateSubmit(newVersion);
         }}
-        currentVersion={codeVersions[currentVersionIndex]?.version?.replace(/^v/, '') || "1.0.0"}
-        pluginDetails={pluginDetails}
+        currentVersion={codeVersions[currentVersionIndex]?.version || "1.0.0"}
       />
 
       <PluginDetailsModal
@@ -3757,7 +2748,7 @@ Your response must include:
       />
 
       <Dialog open={showValidationModal} onOpenChange={setShowValidationModal}>
-        <DialogContent className="bg-white max-h-[90vh] overflow-y-auto">
+        <DialogContent className="bg-white">
           <DialogHeader className="text-center">
             <DialogTitle className="text-xl text-center">Action Required</DialogTitle>
             <DialogDescription className="text-center mt-2">
@@ -3794,155 +2785,6 @@ Your response must include:
           versionNumber={selectedVersion.version}
         />
       )}
-
-      {/* Add the Plugin Errors Modal */}
-      <Dialog open={isPluginErrorsModalOpen} onOpenChange={setIsPluginErrorsModalOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto flex flex-col">
-          <DialogHeader>
-            <DialogTitle>WordPress Plugin Errors</DialogTitle>
-            <DialogDescription>
-              Debug log information for your WordPress plugin
-            </DialogDescription>
-          </DialogHeader>
-          
-          <Tabs defaultValue="filtered" className="flex-1 overflow-hidden flex flex-col">
-            <TabsList>
-              <TabsTrigger value="filtered">Plugin-Related Errors</TabsTrigger>
-              <TabsTrigger value="full">Full Debug Log</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="filtered" className="flex-1 overflow-auto p-4 bg-gray-50 rounded-md my-4">
-              {filteredPluginErrors ? (
-                <pre className="text-xs font-mono whitespace-pre-wrap">{filteredPluginErrors}</pre>
-              ) : (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-gray-500">No plugin-specific errors found</p>
-                </div>
-              )}
-            </TabsContent>
-            
-            <TabsContent value="full" className="flex-1 overflow-auto p-4 bg-gray-50 rounded-md my-4">
-              {pluginErrorsContent ? (
-                <pre className="text-xs font-mono whitespace-pre-wrap">{pluginErrorsContent}</pre>
-              ) : (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-gray-500">No debug log content available</p>
-                </div>
-              )}
-            </TabsContent>
-          </Tabs>
-          
-          <DialogFooter className="flex justify-between">
-            <Button variant="outline" onClick={() => setIsPluginErrorsModalOpen(false)}>
-              Close
-            </Button>
-            
-            {(filteredPluginErrors || pluginErrorsContent) && (
-              <Button 
-                onClick={sendPluginErrorsToDiscussion}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                <MessageSquare className="h-4 w-4 mr-2" />
-                Send to Discussion
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isVersionModalOpen} onOpenChange={setIsVersionModalOpen}>
-        <DialogContent className="bg-white max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Plugin Version</DialogTitle>
-            <DialogDescription>
-              Update the version number of your plugin.
-            </DialogDescription>
-          </DialogHeader>
-          {/* Add your version update form here */}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isDebugModalOpen} onOpenChange={setIsDebugModalOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Debug Information</DialogTitle>
-            <DialogDescription>
-              Debug information for troubleshooting.
-            </DialogDescription>
-          </DialogHeader>
-          {/* Add your debug information form here */}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isLoadModalOpen} onOpenChange={setIsLoadModalOpen}>
-        <DialogContent className="bg-white max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Load Plugin</DialogTitle>
-            <DialogDescription>
-              Load a previously saved plugin.
-            </DialogDescription>
-          </DialogHeader>
-          {/* Add your load plugin form here */}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={isDebugOpen} onOpenChange={setIsDebugOpen}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Debug Information</DialogTitle>
-            <DialogDescription>
-              Debug information for troubleshooting.
-            </DialogDescription>
-          </DialogHeader>
-          {/* Add your debug information form here */}
-        </DialogContent>
-      </Dialog>
-
-      {/* Add the new modals */}
-      <DeleteWpPluginModal
-        isOpen={isDeletePluginModalOpen}
-        onOpenChange={setIsDeletePluginModalOpen}
-        connection={wordpressConnection}
-        pluginName={pluginName}
-        pluginSlug={pluginName}
-      />
-      
-      <ReadDebugLogModal
-        isOpen={isReadDebugLogModalOpen}
-        onOpenChange={setIsReadDebugLogModalOpen}
-        connection={wordpressConnection}
-        pluginName={pluginName}
-        pluginSlug={pluginName}
-        onSendToDiscussion={(message) => handleSendMessage(message)}
-      />
-
-      {/* Hidden DeployToWordPressButton component for the AppMenu to click on */}
-      <div className="hidden">
-        <DeployToWordPressButton
-          pluginZip={pluginZipBase64 || ''}
-          pluginName={pluginName}
-          pluginSlug={pluginName}
-          connection={wordpressConnection}
-          onOpenConnectModal={() => {
-            // Open the WordPress connection modal
-            const connectButton = document.querySelector('.wordpress-connector-button') as HTMLButtonElement;
-            if (connectButton) {
-              connectButton.click();
-            }
-          }}
-          disabled={!generatedCode}
-          generatedCode={!!generatedCode}
-          onDownloadClick={directDownloadPlugin}
-          onSendToDiscussion={(message) => handleSendMessage(message)}
-        />
-      </div>
-
-      {/* Add WpToolsModals component */}
-      <WpToolsModals
-        wordpressConnection={wordpressConnection}
-        pluginName={pluginName}
-        onSendToDiscussion={(message) => handleSendMessage(message)}
-      />
     </div>
   )
 }

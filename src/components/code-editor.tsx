@@ -14,6 +14,15 @@ SyntaxHighlighter.registerLanguage("javascript", js)
 SyntaxHighlighter.registerLanguage("php", php)
 SyntaxHighlighter.registerLanguage("css", css)
 
+// Create a custom theme based on tomorrow but with custom colors
+const customTheme = {
+  ...tomorrow,
+  'hljs': { color: '#00B3B3' },        // Darker Aqua for base text
+  'hljs-string': { color: '#ff69b4' }, // Hot pink for strings
+  'hljs-attr': { color: '#ff69b4' },   // Also apply to attributes
+  'hljs-value': { color: '#ff69b4' },  // And values
+}
+
 interface CodeEditorProps {
   selectedFile: string | null
   fileStructure: FileStructure[]
@@ -84,13 +93,14 @@ export function CodeEditor({ selectedFile, fileStructure, onCodeChange, loading,
           <div className="w-full h-full overflow-auto p-4">
             <SyntaxHighlighter
               language={getLanguage(selectedFile)}
-              style={tomorrow}
+              style={customTheme}
               customStyle={{
                 margin: 0,
                 padding: "1rem",
                 height: "100%",
                 fontSize: "0.875rem",
                 background: "transparent",
+                color: "#00B3B3"
               }}
             >
               {code}
@@ -101,7 +111,7 @@ export function CodeEditor({ selectedFile, fileStructure, onCodeChange, loading,
         <>
           <SyntaxHighlighter
             language={getLanguage(selectedFile)}
-            style={tomorrow}
+            style={customTheme}
             customStyle={{
               margin: 0,
               padding: "1rem",
@@ -116,6 +126,7 @@ export function CodeEditor({ selectedFile, fileStructure, onCodeChange, loading,
               right: 0,
               bottom: 0,
               overflow: "auto",
+              color: "#00B3B3"
             }}
           >
             {code}
@@ -125,13 +136,13 @@ export function CodeEditor({ selectedFile, fileStructure, onCodeChange, loading,
             value={code}
             onChange={handleCodeChange}
             onScroll={handleScroll}
-            className="absolute top-0 left-0 w-full h-full bg-transparent text-transparent caret-black resize-none p-4 pb-[30px] font-mono text-sm leading-normal overflow-auto"
+            className="absolute top-0 left-0 w-full h-full bg-transparent text-transparent caret-white resize-none p-4 pb-[30px] font-mono text-sm leading-normal overflow-auto"
             spellCheck={false}
             aria-label={`Code editor for ${selectedFile}`}
           />
         </>
       ) : (
-        <div className="flex items-center justify-center h-full text-gray-500">
+        <div className="flex items-center justify-center h-full text-aqua">
           Select a file to view and edit its contents
         </div>
       )}

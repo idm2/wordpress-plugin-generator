@@ -19,7 +19,7 @@ export function AdminDetailsModal({ isOpen, onClose, details }: AdminDetailsModa
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>WordPress Admin Details</DialogTitle>
         </DialogHeader>

@@ -121,7 +121,7 @@ export function CodeSnippetModal({ isOpen, onClose, code }: CodeSnippetModalProp
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl bg-white">
+      <DialogContent className="max-w-4xl bg-white max-h-[90vh] overflow-y-auto">
         <DialogHeader className="px-6 pt-6 pb-4">
           <DialogTitle>Code Snippet</DialogTitle>
           <DialogDescription>

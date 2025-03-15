@@ -37,7 +37,6 @@ export function PluginDetailsModal({ isOpen, onClose, onSubmit, initialDescripti
 
   // Update details.description when initialDescription changes
   useEffect(() => {
-    console.log("PluginDetailsModal: initialDescription changed to:", initialDescription);
     if (initialDescription) {
       setDetails(prev => ({ ...prev, description: initialDescription }));
     }
@@ -47,7 +46,6 @@ export function PluginDetailsModal({ isOpen, onClose, onSubmit, initialDescripti
     e.preventDefault()
     if (isSubmitting) return
     
-    console.log("PluginDetailsModal: submitting details with description:", details.description);
     setIsSubmitting(true)
     onSubmit(details)
     onClose()
@@ -63,7 +61,7 @@ export function PluginDetailsModal({ isOpen, onClose, onSubmit, initialDescripti
         }
       }}
     >
-      <DialogContent className="bg-white">
+      <DialogContent className="bg-white max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Plugin Details</DialogTitle>
         </DialogHeader>

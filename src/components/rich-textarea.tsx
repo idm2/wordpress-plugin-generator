@@ -69,10 +69,8 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
 
   // Watch for changes to the value prop
   useEffect(() => {
-    console.log("RichTextarea: value prop changed to:", value);
     // If the value is empty, clear the attachments
     if (value === "") {
-      console.log("RichTextarea: value is empty, clearing attachments");
       // Clear all object URLs before removing attachments
       attachments.forEach((file) => {
         if (file.imageUrl) {
@@ -101,10 +99,8 @@ export function RichTextarea({ value, onChange, onFilesSelected, className, plac
   const handleFilesSelected = async (file: File) => {
     try {
       setIsProcessing(true)
-      console.log("Processing file:", file.name, file.type)
       
       const processed = await processFile(file)
-      console.log("Processed file:", processed)
       
       // Add to attachments
       const processedFile = Object.assign(file, processed) as ProcessedFile

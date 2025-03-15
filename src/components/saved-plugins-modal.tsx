@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { X } from "lucide-react"
+import { WordPressConnection } from "./wordpress-connector"
 
 interface SavedPlugin {
   id: string
@@ -9,6 +10,7 @@ interface SavedPlugin {
   code: string
   description: string
   date: string
+  wordpressConnection?: WordPressConnection | null
 }
 
 interface SavedPluginsModalProps {
@@ -38,7 +40,7 @@ export function SavedPluginsModal({ isOpen, onClose, onLoad }: SavedPluginsModal
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px] bg-white">
+      <DialogContent className="sm:max-w-[425px] bg-white max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Saved Plugins</DialogTitle>
           <DialogDescription>Select a plugin to load or delete</DialogDescription>

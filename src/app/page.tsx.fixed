@@ -1,0 +1,71 @@
+"use client"
+
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import { Download, Eye, RefreshCw, Code, Save, FolderOpen, FileText, Loader2, Wand2, Settings2, Play, FileCode, MessageSquare } from "lucide-react"
+import { OpenAI } from "openai"
+import { AdminDetailsModal } from "@/components/admin-details-modal"
+import FileExplorer from "@/components/file-explorer"
+import { CodeEditor } from "@/components/code-editor"
+import { RevisionModal } from "@/components/revision-modal"
+import { Changelog } from "@/components/changelog"
+import { Button } from "@/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Card } from "@/components/ui/card"
+import { RichTextarea } from "@/components/rich-textarea"
+import { PluginDetailsModal, type PluginDetails } from "@/components/plugin-details-modal"
+import { PreviewModal } from "@/components/preview-modal"
+import { createWordPressInstance, installPlugin, deleteWordPressInstance } from "@/lib/instawp"
+import mammoth from "mammoth"
+import { CodeSnippetModal } from "@/components/code-snippet-modal"
+import { ModelSelector } from "@/components/ModelSelector"
+import { PluginDiscussion } from "@/components/plugin-discussion"
+import { processFile } from "@/lib/file-processor"
+import type { FileReference, FileStructure, Message, ChatMessage, CodeVersion, ProcessedFile, CompletePluginState } from "@/types/shared"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { VersionUpdateModal } from "@/components/version-update-modal"
+import { config } from "@/config/env"
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip"
+import { FileDropZone } from '@/components/file-drop-zone'
+import { v4 as uuidv4 } from 'uuid'
+import { generateResponse } from "@/lib/ollama"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { generateFileChanges } from "@/lib/diff-utils"
+import { DiffViewModal } from "@/components/diff-view-modal"
+import { cleanupGeneratedCode, cleanAndFormatCode } from '@/lib/code-cleanup'
+import { WordPressConnector, type WordPressConnection } from "@/components/wordpress-connector"
+import { DeployToWordPressButton } from "@/components/deploy-to-wordpress-button"
+import JSZip from 'jszip'
+import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+
+interface ChangelogEntry {
+  id: string
+  date: string
+  description: string
+  files?: string[]
+  aiResponse?: string
+  codeChanges?: string
+  llmUsed?: string
+}
+
+// Initialize OpenAI client
+const openai = new OpenAI({
+  apiKey: config.OPENAI_API_KEY,
+  dangerouslyAllowBrowser: true,
+})
+
+export default function PluginGenerator() {
+  // State variables
+  const [isCheckingPluginErrors, setIsCheckingPluginErrors] = useState(false)
+  const [pluginErrorsContent, setPluginErrorsContent] = useState<string | null>(null)
+  const [filteredPluginErrors, setFilteredPluginErrors] = useState<string | null>(null)
+  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false)
+  const [isDebugModalOpen, setIsDebugModalOpen] = useState(false)
+  const [isLoadModalOpen, setIsLoadModalOpen] = useState(false)
+  const [isDebugOpen, setIsDebugOpen] = useState(false)
+  const [connectionRestored, setConnectionRestored] = useState(false)
+  const [restoredSiteName, setRestoredSiteName] = useState("")
+  
+  // Rest of the component...
+} 
