@@ -40,22 +40,37 @@ const nextConfig = {
         ...config.resolve.fallback,
         'ssh2': false,
         'cpu-features': false,
+        'basic-ftp': false,
         fs: false,
         net: false,
         tls: false,
         child_process: false,
+        stream: false,
+        path: false,
+        os: false,
+        crypto: false
       };
     }
     
-    // Exclude binary .node files from being processed by webpack
-    config.module.rules.push({
-      test: /\.node$/,
-      use: 'node-loader',
-      exclude: /node_modules/,
-    });
+    // Handle binary .node files
+    config.module = {
+      ...config.module,
+      exprContextCritical: false,
+      rules: [
+        ...config.module.rules,
+        {
+          test: /\.node$/,
+          loader: 'node-loader',
+          exclude: /node_modules/,
+        }
+      ]
+    };
     
     return config;
   },
+  
+  // Special handling for Vercel deployment
+  output: process.env.NEXT_PUBLIC_VERCEL_DEPLOYMENT === 'true' ? 'standalone' : undefined,
 };
 
 module.exports = nextConfig;

@@ -180,21 +180,57 @@ export function HowToModal({ open, onOpenChange }: HowToModalProps) {
                 <div>
                   <h3 className="text-lg font-semibold flex items-center gap-2 text-blue-500">
                     <Save className="h-4 w-4" />
-                    Save Session
+                    Saving Your Project
                   </h3>
                   <p className="mt-2 text-gray-700">
-                    To save your current project for later use, click on "Project" in the top menu, then select "Save Session". This will download a JSON file containing all your project data, including code, conversation history, and WordPress connection details.
+                    To save your current project for later use:
                   </p>
+                  <ol className="list-decimal list-inside mt-2 space-y-1 text-gray-700">
+                    <li>Click on "Project" in the top menu</li>
+                    <li>Select "Save Session" from the dropdown</li>
+                    <li>A JSON file will be downloaded to your computer</li>
+                    <li>This file contains all your project data, including code, conversation history, and WordPress connection details</li>
+                    <li>Store this file in a safe location for future use</li>
+                  </ol>
+                  <div className="mt-2 bg-gray-100 p-3 rounded-md">
+                    <p className="text-sm text-gray-600 flex items-start">
+                      <AlertTriangle className="h-4 w-4 text-amber-500 mr-2 flex-shrink-0 mt-0.5" />
+                      <span>
+                        <strong>Tip:</strong> Save your project regularly, especially after making significant changes or before trying experimental modifications.
+                      </span>
+                    </p>
+                  </div>
                 </div>
                 
                 <div>
                   <h3 className="text-lg font-semibold flex items-center gap-2 text-blue-500">
                     <FolderOpen className="h-4 w-4" />
-                    Load Saved Session
+                    Loading a Saved Project
                   </h3>
                   <p className="mt-2 text-gray-700">
-                    To load a previously saved project, click on "Project" in the top menu, then select "Load Saved Session". Select the JSON file you previously saved to restore your project exactly as it was.
+                    To load a previously saved project:
                   </p>
+                  <ol className="list-decimal list-inside mt-2 space-y-1 text-gray-700">
+                    <li>Click on "Project" in the top menu</li>
+                    <li>Select "Load Saved Session" from the dropdown</li>
+                    <li>A file picker will open - select the JSON file you previously saved</li>
+                    <li>The system will restore your project exactly as it was when saved, including:</li>
+                    <ul className="list-disc list-inside ml-6 mt-1 text-gray-700">
+                      <li>All plugin code and file structure</li>
+                      <li>Plugin details (name, description, version, etc.)</li>
+                      <li>Conversation history with the AI</li>
+                      <li>WordPress connection details (if previously saved)</li>
+                      <li>Version history of your plugin</li>
+                    </ul>
+                  </ol>
+                  <div className="mt-2 bg-gray-100 p-3 rounded-md">
+                    <p className="text-sm text-gray-600 flex items-start">
+                      <AlertTriangle className="h-4 w-4 text-amber-500 mr-2 flex-shrink-0 mt-0.5" />
+                      <span>
+                        <strong>Note:</strong> Loading a saved session will replace your current work. Make sure to save any current work before loading a different project.
+                      </span>
+                    </p>
+                  </div>
                 </div>
               </div>
             </section>
@@ -339,21 +375,104 @@ export function HowToModal({ open, onOpenChange }: HowToModalProps) {
               <div className="space-y-4">
                 <div>
                   <h3 className="text-lg font-semibold flex items-center gap-2 text-blue-500">
-                    <Trash2 className="h-4 w-4 text-red-500" />
-                    Delete WP Plugin
+                    <Wrench className="h-4 w-4" />
+                    Accessing WordPress Tools
                   </h3>
                   <p className="mt-2 text-gray-700">
-                    If you need to delete your plugin from WordPress, click on "WP Tools" in the top menu, then select "Delete WP Plugin". This will completely remove the plugin from your WordPress site. This operation requires FTP/SFTP access.
+                    WordPress Tools (WP Tools) provide advanced functionality for managing your plugin on your WordPress site. To access these tools:
                   </p>
+                  <ol className="list-decimal list-inside mt-2 space-y-1 text-gray-700">
+                    <li>First, ensure you've connected to your WordPress site with FTP/SFTP details</li>
+                    <li>Click on "WP Tools" in the top menu</li>
+                    <li>If you haven't provided FTP/SFTP details, you'll be prompted to do so</li>
+                    <li>Once connected, you'll see options for various WordPress operations</li>
+                  </ol>
+                  <div className="mt-2 bg-gray-100 p-3 rounded-md">
+                    <p className="text-sm text-gray-600 flex items-start">
+                      <AlertTriangle className="h-4 w-4 text-amber-500 mr-2 flex-shrink-0 mt-0.5" />
+                      <span>
+                        <strong>Important:</strong> WordPress Tools require FTP/SFTP access to your server. These operations interact directly with your WordPress installation, so use them carefully.
+                      </span>
+                    </p>
+                  </div>
                 </div>
                 
                 <div>
                   <h3 className="text-lg font-semibold flex items-center gap-2 text-blue-500">
                     <FileCode className="h-4 w-4" />
-                    Read Debug Log
+                    Reading Debug Logs
                   </h3>
                   <p className="mt-2 text-gray-700">
-                    To view the WordPress debug log (useful for troubleshooting), click on "WP Tools" in the top menu, then select "Read Debug Log". This will display the contents of the debug.log file from your WordPress site. This operation requires FTP/SFTP access.
+                    The debug log reader allows you to view WordPress error logs directly from the app:
+                  </p>
+                  <ol className="list-decimal list-inside mt-2 space-y-1 text-gray-700">
+                    <li>Click on "WP Tools" in the top menu</li>
+                    <li>Select "Read Debug Log" from the dropdown</li>
+                    <li>The system will connect to your server and retrieve the debug log</li>
+                    <li>You'll see two tabs in the results:</li>
+                    <ul className="list-disc list-inside ml-6 mt-1 text-gray-700">
+                      <li><strong>Plugin Errors:</strong> Shows only errors related to your plugin</li>
+                      <li><strong>Full Log:</strong> Shows the complete WordPress debug log</li>
+                    </ul>
+                    <li>Use the search function to find specific errors</li>
+                    <li>The log is automatically filtered to show recent entries first</li>
+                  </ol>
+                  <div className="mt-2 bg-gray-100 p-3 rounded-md">
+                    <p className="text-sm text-gray-600 flex items-start">
+                      <AlertTriangle className="h-4 w-4 text-amber-500 mr-2 flex-shrink-0 mt-0.5" />
+                      <span>
+                        <strong>Tip:</strong> Debug logs are invaluable for troubleshooting plugin issues. If your plugin isn't working as expected, check the logs for PHP errors or warnings.
+                      </span>
+                    </p>
+                  </div>
+                </div>
+                
+                <div>
+                  <h3 className="text-lg font-semibold flex items-center gap-2 text-blue-500">
+                    <Trash2 className="h-4 w-4 text-red-500" />
+                    Deleting a Plugin
+                  </h3>
+                  <p className="mt-2 text-gray-700">
+                    If you need to completely remove your plugin from your WordPress site:
+                  </p>
+                  <ol className="list-decimal list-inside mt-2 space-y-1 text-gray-700">
+                    <li>Click on "WP Tools" in the top menu</li>
+                    <li>Select "Delete WP Plugin" from the dropdown (shown in red as a warning)</li>
+                    <li>A confirmation dialog will appear asking you to confirm the deletion</li>
+                    <li>If you confirm, the system will:</li>
+                    <ul className="list-disc list-inside ml-6 mt-1 text-gray-700">
+                      <li>Connect to your WordPress server via FTP/SFTP</li>
+                      <li>Navigate to the plugins directory</li>
+                      <li>Completely remove your plugin's directory and all its files</li>
+                    </ul>
+                  </ol>
+                  <div className="mt-2 bg-gray-100 p-3 rounded-md">
+                    <p className="text-sm text-gray-600 flex items-start">
+                      <AlertTriangle className="h-4 w-4 text-red-500 mr-2 flex-shrink-0 mt-0.5" />
+                      <span>
+                        <strong>Warning:</strong> This operation permanently deletes your plugin from the server. It cannot be undone. Make sure you have a backup or have saved your session if you might need the plugin again.
+                      </span>
+                    </p>
+                  </div>
+                </div>
+                
+                <div>
+                  <h3 className="text-lg font-semibold flex items-center gap-2 text-blue-500">
+                    <AlertTriangle className="h-4 w-4" />
+                    Troubleshooting WP Tools
+                  </h3>
+                  <p className="mt-2 text-gray-700">
+                    If you encounter issues with WordPress Tools:
+                  </p>
+                  <ul className="list-disc list-inside mt-2 space-y-1 text-gray-700">
+                    <li><strong>Connection errors:</strong> Verify your FTP/SFTP details (host, username, password, port)</li>
+                    <li><strong>Access denied:</strong> Ensure your FTP/SFTP user has sufficient permissions</li>
+                    <li><strong>Debug log not found:</strong> Confirm that WordPress debugging is enabled on your site</li>
+                    <li><strong>Plugin not found:</strong> Verify that the plugin is installed and the slug is correct</li>
+                    <li><strong>Timeout errors:</strong> Try again later or check your server's connection</li>
+                  </ul>
+                  <p className="mt-2 text-gray-700">
+                    If problems persist, you can update your WordPress connection details by clicking "Connect to WordPress" in the top right corner.
                   </p>
                 </div>
               </div>

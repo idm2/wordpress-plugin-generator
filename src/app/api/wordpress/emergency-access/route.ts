@@ -343,7 +343,7 @@ async function handleSftpOperation(
             console.log(`Plugin directory found at: ${pluginPath}`);
             
             // Recursive function to delete a directory and its contents
-            const deleteDirectory = (path: string, callback: (err?: Error) => void) => {
+            const deleteDirectory = (path: string, callback: (err?: Error | null) => void) => {
               sftp.readdir(path, (err, list) => {
                 if (err) {
                   return callback(err);
@@ -351,7 +351,7 @@ async function handleSftpOperation(
                 
                 let pending = list.length;
                 if (!pending) {
-                  return sftp.rmdir(path, callback);
+                  return sftp.rmdir(path, (err) => callback(err || undefined));
                 }
                 
                 list.forEach((item) => {
@@ -364,7 +364,7 @@ async function handleSftpOperation(
                       }
                       
                       if (--pending === 0) {
-                        sftp.rmdir(path, callback);
+                        sftp.rmdir(path, (err) => callback(err || undefined));
                       }
                     });
                   } else {
@@ -374,7 +374,7 @@ async function handleSftpOperation(
                       }
                       
                       if (--pending === 0) {
-                        sftp.rmdir(path, callback);
+                        sftp.rmdir(path, (err) => callback(err || undefined));
                       }
                     });
                   }
@@ -428,11 +428,11 @@ async function handleSftpOperation(
             const stream = sftp.createReadStream(debugLogPath);
             let debugLogContent = '';
             
-            stream.on('data', (data) => {
+            stream.on('data', (data: Buffer) => {
               debugLogContent += data.toString();
             });
             
-            stream.on('error', (err) => {
+            stream.on('error', (err: Error) => {
               console.error('Error reading debug log file:', err);
               client.end();
               resolve({ 
