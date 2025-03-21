@@ -237,27 +237,25 @@ export function WordPressConnector({ onConnect, currentConnection }: WordPressCo
       return
     }
 
-    // Check if debugging is enabled but FTP details are not provided
-    if (enableDebugging && hasAddedDebugSettings && !includeFtpDetails) {
-      setError("FTP/SFTP details are required when debugging is enabled")
+    // FTP/SFTP connection is now MANDATORY for all connections
+    if (!includeFtpDetails) {
+      setError("FTP/SFTP details are required for all WordPress connections")
       setIncludeFtpDetails(true)
       setActiveTab("ftp")
       return
     }
 
-    if (includeFtpDetails) {
-      if (!ftpHost || !ftpUsername || !ftpPassword) {
-        setError("FTP/SFTP host, username, and password are required")
-        setActiveTab("ftp")
-        return
-      }
+    if (!ftpHost || !ftpUsername || !ftpPassword) {
+      setError("FTP/SFTP host, username, and password are required")
+      setActiveTab("ftp")
+      return
+    }
       
-      const portNumber = parseInt(ftpPort, 10)
-      if (isNaN(portNumber) || portNumber <= 0 || portNumber > 65535) {
-        setError("Please enter a valid port number (1-65535)")
-        setActiveTab("ftp")
-        return
-      }
+    const portNumber = parseInt(ftpPort, 10)
+    if (isNaN(portNumber) || portNumber <= 0 || portNumber > 65535) {
+      setError("Please enter a valid port number (1-65535)")
+      setActiveTab("ftp")
+      return
     }
     
     setIsConnecting(true)
@@ -617,18 +615,35 @@ export function WordPressConnector({ onConnect, currentConnection }: WordPressCo
             </TabsContent>
             
             <TabsContent value="ftp" className="space-y-4">
-              <div className="space-y-4">
-                <div className="flex items-center space-x-2">
+              <div className="space-y-4 p-1">
+                <div className="bg-blue-50 border border-blue-200 p-4 rounded-md mb-4">
+                  <div className="flex items-start">
+                    <FileCode className="h-5 w-5 text-blue-500 mr-2 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-medium text-blue-800">FTP/SFTP Details Required</h4>
+                      <p className="text-sm text-blue-700 mt-1">
+                        FTP/SFTP access is now required for all WordPress connections to enable better error reporting and diagnostics. This allows the system to:
+                      </p>
+                      <ul className="text-sm text-blue-700 list-disc pl-5 mt-1">
+                        <li>Access WordPress debug logs for error analysis</li>
+                        <li>Diagnose plugin activation failures</li>
+                        <li>Identify PHP syntax errors in real-time</li>
+                        <li>Show plugin-specific error logs</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex items-center">
                   <Checkbox 
-                    id="include-ftp-details" 
-                    checked={includeFtpDetails} 
-                    onCheckedChange={(checked) => setIncludeFtpDetails(checked as boolean)}
+                    id="includeFtpDetails" 
+                    checked={includeFtpDetails}
+                    onCheckedChange={(checked) => {
+                      setIncludeFtpDetails(checked === true)
+                    }}
                   />
-                  <label 
-                    htmlFor="include-ftp-details" 
-                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                  >
-                    Include FTP/SFTP details for emergency access
+                  <label htmlFor="includeFtpDetails" className="ml-2 text-sm font-medium">
+                    Include FTP/SFTP details
                   </label>
                 </div>
                 

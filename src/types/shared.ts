@@ -16,7 +16,6 @@ export interface PluginDetails {
   description: string
   version: string
   author: string
-  structure: "simplified" | "traditional"
 }
 
 export interface ChatMessage {

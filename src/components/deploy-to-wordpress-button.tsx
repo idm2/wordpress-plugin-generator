@@ -460,7 +460,45 @@ export function DeployToWordPressButton({
       if (data.message && data.message.includes("activation failed")) {
         console.log("Activation failed. Attempting to fetch debug log via FTP/SFTP...");
         try {
-          await fetchDebugLog();
+          // Automatic debug log fetching for activation failures
+          const debugLogResponse = await fetch('/api/wordpress/emergency-access', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              operation: 'read-debug-log',
+              ftpDetails: connection.ftpDetails,
+              siteUrl: connection.siteUrl,
+              pluginSlug: pluginSlug,
+              filter_options: {
+                filter_by_plugin: true,
+                plugin_slug: pluginSlug,
+                filter_by_time: true,
+                time_threshold: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // Last 10 minutes
+                max_lines: 500
+              }
+            }),
+          });
+          
+          const debugLogData = await debugLogResponse.json();
+          
+          if (debugLogData.success && (debugLogData.debug_log || debugLogData.data?.debug_log)) {
+            // Store debug log data
+            setDebugLog(debugLogData.debug_log || debugLogData.data?.debug_log);
+            
+            // Set activation-specific error info
+            setActivationErrorType('ActivationFailed');
+            setActivationTroubleshooting([
+              'Review the debug log for PHP errors',
+              'Check for syntax errors in your plugin code',
+              'Ensure all dependencies are properly included',
+              'Verify that hooks and filters are properly registered'
+            ]);
+            
+            // Show debug tab if we got logs
+            setActiveTab('debug');
+          }
         } catch (debugError) {
           console.error("Failed to fetch debug log:", debugError);
         }
@@ -723,27 +761,23 @@ export function DeployToWordPressButton({
     message += `I need help analyzing my WordPress debug log. `;
     message += `Please review the log below and identify any issues with my plugin.\n\n`;
     
-    // Add information about filtering
-    if (emergencyResult.filtering_applied) {
-      message += `*Note: This log has been filtered `;
-      if (emergencyResult.filtering_applied.plugin_filtered) {
-        message += `to show only entries related to this plugin `;
-      }
-      if (emergencyResult.filtering_applied.time_filtered) {
-        message += `and limited to recent entries `;
-      }
-      message += `.*\n\n`;
+    // Add any activation error information if available
+    if (emergencyResult.activation_error) {
+      message += `### Activation Error\n\n`;
+      message += `\`\`\`\n${emergencyResult.activation_error}\n\`\`\`\n\n`;
     }
     
     // Add tabs for different views
-    message += `### Plugin Log Files\n\n`;
+    message += `### Plugin-Specific Logs\n\n`;
     
     // Add the plugin-specific errors if available
     if (emergencyResult.plugin_errors) {
       message += `\`\`\`php\n${emergencyResult.plugin_errors}\n\`\`\`\n\n`;
+    } else {
+      message += `*No plugin-specific errors found in the log.*\n\n`;
     }
     
-    message += `### Complete Log File\n\n`;
+    message += `### Complete Debug Log\n\n`;
     
     // Add the full debug log
     message += `\`\`\`php\n${emergencyResult.debug_log}\n\`\`\`\n\n`;
@@ -1427,85 +1461,117 @@ export function DeployToWordPressButton({
             )}
             
             {/* Deployment Success UI */}
-            {deploymentSuccess && (
-              <div className="flex flex-col gap-4">
-                <Alert variant="default" className="bg-green-50 border-green-200">
-                  <Check className="h-4 w-4 text-green-500" />
-                  <AlertTitle className="text-green-800">Success</AlertTitle>
-                  <AlertDescription className="text-green-700">
-                    {deploymentMessage}
-                  </AlertDescription>
-                </Alert>
-                
-                {deploymentDetails?.plugin_url && (
-                  <div className="flex flex-col gap-2">
-                    <p className="font-medium">Plugin Details:</p>
-                    <div className="flex flex-col gap-1">
-                      {deploymentDetails.plugin_url && (
-                        <a 
-                          href={deploymentDetails.plugin_url} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline flex items-center"
-                        >
-                          <Globe className="h-4 w-4 mr-2" />
-                          View Plugin
-                        </a>
+            {deploymentSuccess && !error && (
+              <div className="text-left">
+                <div className={activeTab === 'details' ? 'block' : 'hidden'}>
+                  <Alert className={deploymentMessage.includes("activation failed") ? "bg-yellow-50 border-yellow-200" : "bg-green-50 border-green-200"}>
+                    <div className="flex items-start">
+                      {deploymentMessage.includes("activation failed") ? (
+                        <AlertCircle className="h-5 w-5 text-yellow-500 mr-3 flex-shrink-0" />
+                      ) : (
+                        <Check className="h-5 w-5 text-green-500 mr-3 flex-shrink-0" />
                       )}
-                      {deploymentDetails.admin_url && (
-                        <a 
-                          href={deploymentDetails.admin_url} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline flex items-center"
+                      <div>
+                        <AlertTitle className="text-lg font-semibold">
+                          {deploymentMessage.includes("activation failed") ? "Plugin Installed with Warnings" : "Success!"}
+                        </AlertTitle>
+                        <AlertDescription className="text-sm mt-1">
+                          {deploymentMessage}
+                          
+                          {/* Show debug log button if activation failed and we have logs */}
+                          {deploymentMessage.includes("activation failed") && debugLog && (
+                            <div className="mt-3">
+                              <Button
+                                onClick={() => setActiveTab('debug')}
+                                variant="default"
+                                size="sm"
+                                className="mr-2"
+                              >
+                                <FileCode className="h-4 w-4 mr-1" />
+                                View Debug Log
+                              </Button>
+                            </div>
+                          )}
+                        </AlertDescription>
+                      </div>
+                    </div>
+                  </Alert>
+                  
+                  {/* ... rest of success UI ... */}
+                </div>
+                
+                {/* Debug Log Tab */}
+                <div className={activeTab === 'debug' ? 'block' : 'hidden'}>
+                  <div className="bg-gray-50 border rounded-md p-4 mb-4">
+                    <h3 className="text-lg font-semibold mb-2">Debug Log Analysis</h3>
+                    <p className="text-sm mb-4">
+                      The plugin was installed but activation failed. The debug log may contain information about what went wrong.
+                    </p>
+                    
+                    {activationTroubleshooting && activationTroubleshooting.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="text-sm font-semibold">Troubleshooting Steps:</h4>
+                        <ul className="list-disc pl-5 text-sm">
+                          {activationTroubleshooting.map((step, index) => (
+                            <li key={index} className="text-gray-700">{step}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    
+                    <div className="flex justify-between mb-4">
+                      <h4 className="text-sm font-semibold">Debug Log Content:</h4>
+                      {onSendToDiscussion && (
+                        <Button 
+                          onClick={() => {
+                            const message = `I'm having issues with my WordPress plugin "${pluginName}". The plugin was installed but could not be activated. The error message is: "${deploymentMessage}"\n\nHere's the debug log:\n\n\`\`\`\n${debugLog}\n\`\`\`\n\nPlease help me fix the activation issue.`;
+                            onSendToDiscussion(message);
+                          }}
+                          variant="outline"
+                          size="sm"
                         >
-                          <Globe className="h-4 w-4 mr-2" />
-                          WordPress Admin
-                        </a>
+                          <MessageSquare className="h-4 w-4 mr-1" />
+                          Send to Discussion
+                        </Button>
                       )}
                     </div>
                     
-                    {connection?.enableDebugging && connection?.ftpDetails?.host && (
-                      <Button 
-                        onClick={() => {}} 
-                        variant="outline" 
-                        size="sm"
-                        className="flex items-center"
-                      >
-                        <FileCode className="h-4 w-4 mr-2" />
-                        Check Plugin Errors
-                      </Button>
-                    )}
+                    <div className="bg-black rounded-md text-xs p-3 overflow-auto max-h-96">
+                      <pre className="text-green-400 whitespace-pre-wrap">{debugLog}</pre>
+                    </div>
+                  </div>
+                  
+                  <div className="flex justify-between">
+                    <Button variant="outline" onClick={() => setActiveTab('details')}>
+                      Back to Deployment Details
+                    </Button>
+                  </div>
+                </div>
+                
+                {/* Tab Navigation for Success State */}
+                <div className="border-t border-gray-200 mt-4 pt-4">
+                  <div className="flex space-x-4">
+                    <button
+                      onClick={() => setActiveTab('details')}
+                      className={`px-3 py-2 text-sm ${activeTab === 'details' ? 'border-b-2 border-black font-medium' : 'text-gray-500'}`}
+                    >
+                      Deployment Details
+                    </button>
                     
-                    {connection && !connection.enableDebugging && (
-                      <div className="flex items-start gap-2 bg-yellow-50 border border-yellow-200 rounded-md p-4 mt-4">
-                        <Info className="h-5 w-5 text-yellow-500 flex-shrink-0 mt-0.5" />
-                        <div>
-                          <p className="font-semibold mb-1">WordPress Debugging Not Enabled</p>
-                          <p className="text-sm">
-                            For better error reporting, enable debugging in the WordPress connection settings.
-                            This helps identify PHP errors in your plugin.
-                          </p>
-                          <Button 
-                            onClick={() => {
-                              handleClose();
-                              // Open the WordPress connection modal
-                              const connectButton = document.querySelector('.wordpress-connector-button') as HTMLButtonElement;
-                              if (connectButton) {
-                                connectButton.click();
-                              }
-                            }} 
-                            variant="outline"
-                            size="sm"
-                            className="mt-2"
-                          >
-                            Open Connection Settings
-                          </Button>
-                        </div>
-                      </div>
+                    {debugLog && (
+                      <button
+                        onClick={() => setActiveTab('debug')}
+                        className={`px-3 py-2 text-sm flex items-center ${activeTab === 'debug' ? 'border-b-2 border-black font-medium' : 'text-gray-500'}`}
+                      >
+                        <FileCode className="h-4 w-4 mr-1" />
+                        Debug Log
+                        {deploymentMessage.includes("activation failed") && (
+                          <span className="ml-1 bg-yellow-200 text-yellow-800 text-xs px-1.5 py-0.5 rounded-full">!</span>
+                        )}
+                      </button>
                     )}
                   </div>
-                )}
+                </div>
               </div>
             )}
             

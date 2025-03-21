@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 
 export interface PluginDetails {
   name: string
@@ -14,7 +13,6 @@ export interface PluginDetails {
   description: string
   version: string
   author: string
-  structure: "simplified" | "traditional"
 }
 
 interface PluginDetailsModalProps {
@@ -25,14 +23,13 @@ interface PluginDetailsModalProps {
 }
 
 export function PluginDetailsModal({ isOpen, onClose, onSubmit, initialDescription = '' }: PluginDetailsModalProps) {
-  const [details, setDetails] = useState<PluginDetails>(() => ({
+  const [details, setDetails] = useState<PluginDetails>({
     name: '',
     uri: '',
     description: initialDescription,
     version: '1.0.0',
-    author: '',
-    structure: 'simplified'
-  }))
+    author: ''
+  })
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Update details.description when initialDescription changes
@@ -44,12 +41,17 @@ export function PluginDetailsModal({ isOpen, onClose, onSubmit, initialDescripti
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (isSubmitting) return
     
-    setIsSubmitting(true)
-    onSubmit(details)
+    // Create a complete details object with proper types
+    const completeDetails = {
+      ...details,
+    }
+    
+    // Call the onSubmit callback with the details
+    onSubmit(completeDetails)
+    
+    // Close the modal
     onClose()
-    setIsSubmitting(false)
   }
 
   return (
@@ -86,12 +88,23 @@ export function PluginDetailsModal({ isOpen, onClose, onSubmit, initialDescripti
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="description">Description</Label>
+            <Label>Author</Label>
+            <Input
+              id="author"
+              value={details.author}
+              onChange={(e) => setDetails(prev => ({ ...prev, author: e.target.value }))}
+              placeholder="Your Name"
+              required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Plugin Description</Label>
             <Textarea
-              id="description"
+              id="description" 
               value={details.description}
               onChange={(e) => setDetails(prev => ({ ...prev, description: e.target.value }))}
-              placeholder="A brief description of what your plugin does"
+              placeholder="Describe what your plugin does"
+              className="h-24"
               required
             />
           </div>
@@ -104,40 +117,6 @@ export function PluginDetailsModal({ isOpen, onClose, onSubmit, initialDescripti
               placeholder="1.0.0"
               required
             />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="author">Author</Label>
-            <Input
-              id="author"
-              value={details.author}
-              onChange={(e) => setDetails(prev => ({ ...prev, author: e.target.value }))}
-              placeholder="Your Name"
-              required
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Code Structure</Label>
-            <RadioGroup
-              value={details.structure}
-              onValueChange={(value) => setDetails({ ...details, structure: value as "simplified" | "traditional" })}
-              className="flex flex-col space-y-2"
-            >
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="simplified" id="simplified" />
-                <Label htmlFor="simplified" className="font-normal">
-                  Simplified (Single File)
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="traditional" id="traditional" />
-                <Label htmlFor="traditional" className="font-normal">
-                  Traditional (Multiple Files)
-                </Label>
-              </div>
-            </RadioGroup>
-            <p className="text-sm text-gray-500 mt-1">
-              Traditional structure is recommended for complex plugins with multiple features.
-            </p>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>

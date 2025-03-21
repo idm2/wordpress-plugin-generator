@@ -124,6 +124,17 @@ export function AppMenu({
 
   return (
     <div className="flex items-center gap-2">
+      {/* New Session Button (Dedicated) */}
+      <Button 
+        variant="default" 
+        size="sm" 
+        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+        onClick={onNewSession}
+      >
+        <RefreshCw className="h-4 w-4" />
+        New Session
+      </Button>
+
       {/* Project Menu */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -133,11 +144,6 @@ export function AppMenu({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          <DropdownMenuItem onClick={onNewSession}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            New Session
-          </DropdownMenuItem>
-          
           {hasFilledDetails && generatedPlugin && (
             <DropdownMenuItem onClick={onEditDetails}>
               <Settings2 className="h-4 w-4 mr-2" />

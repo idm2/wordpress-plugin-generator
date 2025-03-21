@@ -59,10 +59,12 @@ const openai = new OpenAI({
 export default function PluginGenerator() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
+  const [generatedCode, setGeneratedCode] = useState<string | null>(null)
+  const [pluginName, setPluginName] = useState("")
+  const [pluginSlug, setPluginSlug] = useState("")
   const [description, setDescription] = useState("")
   const [revisionDescription, setRevisionDescription] = useState("")
-  const [generatedCode, setGeneratedCode] = useState("")
-  const [pluginName, setPluginName] = useState("my-plugin")
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [fileStructure, setFileStructure] = useState<FileStructure[]>([])
   const [previewSiteId, setPreviewSiteId] = useState<string | null>(null)
@@ -559,7 +561,8 @@ export default function PluginGenerator() {
           })) as { role: "system" | "user" | "assistant"; content: string }[],
         })
         response = completion.choices[0].message.content || ""
-      } else if (selectedModel === "deepseek") {
+      } else {
+        // Handle other models (e.g., Anthropic) through API
         const result = await fetch("/api/generate", {
           method: "POST",
           headers: {
@@ -577,11 +580,9 @@ export default function PluginGenerator() {
 
         const data = await result.json()
         response = data.content
-      } else {
-        throw new Error(`Unsupported model: ${selectedModel}`)
       }
 
-        return parseAIResponse(response)
+      return parseAIResponse(response)
     } catch (error) {
       console.error("Error generating response:", error)
       throw error
@@ -668,52 +669,100 @@ export default function PluginGenerator() {
     console.log("createFileStructure called with code:", code.substring(0, 200) + "...");
     
     // Extract plugin name from the code if pluginDetails is not available
-    let pluginName = "my-plugin";
-    let isTraditional = false;
+    let pluginNameToUse = pluginName;
     
     if (pluginDetails?.name) {
       console.log("Using plugin name from pluginDetails:", pluginDetails.name);
-      pluginName = pluginDetails.name;
-      isTraditional = pluginDetails.structure === "traditional";
+      pluginNameToUse = pluginDetails.name;
     } else {
       // Try to extract plugin name from the code
       const nameMatch = code.match(/Plugin Name:\s*([^\n]*)/);
       if (nameMatch && nameMatch[1]) {
-        pluginName = nameMatch[1].trim();
-        console.log("Extracted plugin name from code:", pluginName);
+        pluginNameToUse = nameMatch[1].trim();
+        console.log("Extracted plugin name from code:", pluginNameToUse);
       } else {
-        console.log("Could not extract plugin name from code, using default:", pluginName);
+        console.log("Could not extract plugin name from code, using current plugin name:", pluginNameToUse);
+        if (!pluginNameToUse || pluginNameToUse === "") {
+          pluginNameToUse = "my-plugin";
+          console.log("No plugin name set, using default:", pluginNameToUse);
+        }
       }
     }
     
     // Create a slug from the plugin name
-    const pluginSlug = pluginName
+    const pluginSlugToUse = pluginNameToUse
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
     
-    console.log("Using plugin slug for file structure:", pluginSlug);
+    // Update the state
+    setPluginName(pluginNameToUse);
+    setPluginSlug(pluginSlugToUse);
+    
+    console.log("Using plugin slug for file structure:", pluginSlugToUse);
 
+    // First set the generated code
+    setGeneratedCode(code);
+    
+    // Extract header and code parts
     const headerMatch = code.match(/\/\*[\s\S]*?\*\//)
     const pluginHeader = headerMatch ? headerMatch[0] : ""
     const mainCode = code.replace(headerMatch?.[0] || "", "").trim()
     const customFunctions = extractCustomFunctions(mainCode)
 
+    // Analyze the code to determine if it should use a traditional structure
+    // 1. Check for multiple classes
+    const classRegex = /class\s+([a-zA-Z0-9_]+)/g;
+    const classes = [];
+    let match;
+    while ((match = classRegex.exec(code)) !== null) {
+      classes.push(match[1]);
+    }
+    const hasMultipleClasses = classes.length > 1;
+    
+    // 2. Check code size - if over 300 lines, consider using multiple files
+    const codeLines = code.split("\n").length;
+    const isLargeCode = codeLines > 300;
+    
+    // 3. Check for specific patterns that indicate complexity
+    const hasAdminCode = code.includes("admin_menu") || code.includes("admin_init") || 
+                         code.includes("admin-specific") || code.includes("class Admin");
+    const hasPublicCode = code.includes("wp_enqueue_scripts") || code.includes("public-facing") || 
+                          code.includes("class Public") || code.includes("shortcode");
+    const hasComplexFeatures = code.includes("custom post type") || code.includes("register_post_type") || 
+                              code.includes("add_meta_box") || code.includes("register_rest_route");
+    
+    // Determine if we should use traditional multi-file structure
+    const useTraditionalStructure = hasMultipleClasses || isLargeCode || 
+                                   (hasAdminCode && hasPublicCode) || hasComplexFeatures;
+    
+    console.log("Code structure analysis:", {
+      codeLines,
+      hasMultipleClasses,
+      classes: classes.length,
+      isLargeCode,
+      hasAdminCode,
+      hasPublicCode,
+      hasComplexFeatures,
+      useTraditionalStructure
+    });
+
+    // Create the file structure
     const structure: FileStructure[] = [
       {
-        name: pluginSlug,
+        name: pluginSlugToUse,
         type: "folder",
-        children: isTraditional
+        children: useTraditionalStructure
           ? [
           {
             name: "admin",
             type: "folder",
             children: [
                   {
-                    name: `class-${pluginSlug}-admin.php`,
+                    name: `class-${pluginSlugToUse}-admin.php`,
                     type: "file",
-                    content: generateAdminClass(pluginName),
-                    path: `${pluginSlug}/admin/class-${pluginSlug}-admin.php`
+                    content: generateAdminClass(pluginNameToUse),
+                    path: `${pluginSlugToUse}/admin/class-${pluginSlugToUse}-admin.php`
                   },
               {
                 name: "css",
@@ -723,7 +772,7 @@ export default function PluginGenerator() {
                         name: "index.php",
                         type: "file",
                         content: "<?php // Silence is golden",
-                        path: `${pluginSlug}/admin/css/index.php`
+                        path: `${pluginSlugToUse}/admin/css/index.php`
                       }
                     ]
               },
@@ -735,7 +784,7 @@ export default function PluginGenerator() {
                         name: "index.php",
                         type: "file",
                         content: "<?php // Silence is golden",
-                        path: `${pluginSlug}/admin/js/index.php`
+                        path: `${pluginSlugToUse}/admin/js/index.php`
                       }
                     ]
                   },
@@ -747,105 +796,87 @@ export default function PluginGenerator() {
                         name: "index.php",
                 type: "file",
                         content: "<?php // Silence is golden",
-                        path: `${pluginSlug}/admin/partials/index.php`
+                        path: `${pluginSlugToUse}/admin/partials/index.php`
                       }
                     ]
                   }
                 ]
-          },
-          {
-            name: "includes",
-            type: "folder",
-            children: [
-              {
-                    name: `class-${pluginSlug}-activator.php`,
-                type: "file",
-                    content: generateActivatorClass(pluginName),
-                    path: `${pluginSlug}/includes/class-${pluginSlug}-activator.php`
               },
               {
-                    name: `class-${pluginSlug}-deactivator.php`,
-                type: "file",
-                    content: generateDeactivatorClass(pluginName),
-                    path: `${pluginSlug}/includes/class-${pluginSlug}-deactivator.php`
+                name: "includes",
+                type: "folder",
+                children: [
+                  {
+                    name: `class-${pluginSlugToUse}-activator.php`,
+                    type: "file",
+                    content: generateActivatorClass(pluginNameToUse),
+                    path: `${pluginSlugToUse}/includes/class-${pluginSlugToUse}-activator.php`
                   },
                   {
-                    name: `class-${pluginSlug}-i18n.php`,
+                    name: `class-${pluginSlugToUse}-deactivator.php`,
                     type: "file",
-                    content: generateI18nClass(pluginName),
-                    path: `${pluginSlug}/includes/class-${pluginSlug}-i18n.php`
+                    content: generateDeactivatorClass(pluginNameToUse),
+                    path: `${pluginSlugToUse}/includes/class-${pluginSlugToUse}-deactivator.php`
                   },
                   {
-                    name: `class-${pluginSlug}-loader.php`,
+                    name: `class-${pluginSlugToUse}-i18n.php`,
                     type: "file",
-                    content: generateLoaderClass(pluginName),
-                    path: `${pluginSlug}/includes/class-${pluginSlug}-loader.php`
+                    content: generateI18nClass(pluginNameToUse),
+                    path: `${pluginSlugToUse}/includes/class-${pluginSlugToUse}-i18n.php`
                   },
                   {
-                    name: `class-${pluginSlug}.php`,
+                    name: `class-${pluginSlugToUse}-loader.php`,
                     type: "file",
-                    content: generateMainClass(pluginName),
-                    path: `${pluginSlug}/includes/class-${pluginSlug}.php`
+                    content: generateLoaderClass(),
+                    path: `${pluginSlugToUse}/includes/class-${pluginSlugToUse}-loader.php`
                   },
-                  {
-                    name: "index.php",
-                    type: "file",
-                    content: "<?php // Silence is golden",
-                    path: `${pluginSlug}/includes/index.php`
-                  }
                 ]
               },
               {
                 name: "languages",
                 type: "folder",
-                children: [
-                  {
-                    name: "index.php",
-                    type: "file",
-                    content: "<?php // Silence is golden",
-                    path: `${pluginSlug}/languages/index.php`
-                  },
-                  {
-                    name: `${pluginSlug}.pot`,
-                    type: "file",
-                    content: "",
-                    path: `${pluginSlug}/languages/${pluginSlug}.pot`
-                  }
-                ]
-          },
-          {
-            name: "public",
-            type: "folder",
-            children: [
-                  {
-                    name: `class-${pluginSlug}-public.php`,
-                    type: "file",
-                    content: generatePublicClass(pluginName),
-                    path: `${pluginSlug}/public/class-${pluginSlug}-public.php`
-                  },
-              {
-                name: "css",
-                type: "folder",
                     children: [
                       {
                         name: "index.php",
                         type: "file",
                         content: "<?php // Silence is golden",
-                        path: `${pluginSlug}/public/css/index.php`
+                        path: `${pluginSlugToUse}/languages/index.php`
                       }
                     ]
               },
               {
-                name: "js",
+                name: "public",
                 type: "folder",
-                    children: [
-                      {
-                        name: "index.php",
-                        type: "file",
-                        content: "<?php // Silence is golden",
-                        path: `${pluginSlug}/public/js/index.php`
-                      }
-                    ]
+                children: [
+                  {
+                    name: `class-${pluginSlugToUse}-public.php`,
+                    type: "file",
+                    content: generatePublicClass(pluginNameToUse),
+                    path: `${pluginSlugToUse}/public/class-${pluginSlugToUse}-public.php`
+                  },
+                  {
+                    name: "css",
+                    type: "folder",
+                        children: [
+                          {
+                            name: "index.php",
+                            type: "file",
+                            content: "<?php // Silence is golden",
+                            path: `${pluginSlugToUse}/public/css/index.php`
+                          }
+                        ]
+                  },
+                  {
+                    name: "js",
+                    type: "folder",
+                        children: [
+                          {
+                            name: "index.php",
+                            type: "file",
+                            content: "<?php // Silence is golden",
+                            path: `${pluginSlugToUse}/public/js/index.php`
+                          }
+                        ]
                   },
                   {
                     name: "partials",
@@ -853,9 +884,9 @@ export default function PluginGenerator() {
                     children: [
                       {
                         name: "index.php",
-                type: "file",
+                        type: "file",
                         content: "<?php // Silence is golden",
-                        path: `${pluginSlug}/public/partials/index.php`
+                        path: `${pluginSlugToUse}/public/partials/index.php`
                       }
                     ]
                   }
@@ -865,75 +896,58 @@ export default function PluginGenerator() {
                 name: "index.php",
                 type: "file",
                 content: "<?php // Silence is golden",
-                path: `${pluginSlug}/index.php`
+                path: `${pluginSlugToUse}/index.php`
               },
               {
-                name: "LICENSE.txt",
-            type: "file",
-                content: generateLicenseContent(),
-                path: `${pluginSlug}/LICENSE.txt`
-              },
-              {
-                name: "README.txt",
+                name: `${pluginSlugToUse}.php`,
                 type: "file",
-                content: generateReadmeContent(pluginName),
-                path: `${pluginSlug}/README.txt`
-              },
-              {
-                name: `${pluginSlug}.php`,
-                type: "file",
-                content: generateMainPluginFile(pluginHeader, customFunctions, pluginName),
-                path: `${pluginSlug}/${pluginSlug}.php`
-              },
-              {
-                name: "uninstall.php",
-                type: "file",
-                content: generateUninstallContent(),
-                path: `${pluginSlug}/uninstall.php`
+                content: generateMainPluginFile(pluginHeader, customFunctions, pluginNameToUse),
+                path: `${pluginSlugToUse}/${pluginSlugToUse}.php`
               }
             ]
           : [
               {
-                name: `${pluginSlug}.php`,
+                name: `${pluginSlugToUse}.php`,
                 type: "file",
                 content: code,
-                path: `${pluginSlug}/${pluginSlug}.php`
+                path: `${pluginSlugToUse}/${pluginSlugToUse}.php`
               }
             ]
       }
-    ]
+    ];
 
     console.log("Setting file structure:", structure);
     setFileStructure(structure);
     
-    const mainFilePath = `${pluginSlug}/${pluginSlug}.php`;
+    const mainFilePath = `${pluginSlugToUse}/${pluginSlugToUse}.php`;
     console.log("Setting selected file:", mainFilePath);
     setSelectedFile(mainFilePath);
-    
-    // Set the plugin name state
-    setPluginName(pluginName);
-    console.log("Plugin name set to:", pluginName);
     
     // Save to localStorage
     try {
       localStorage.setItem("fileStructure", JSON.stringify(structure));
       localStorage.setItem("selectedFile", mainFilePath);
-      localStorage.setItem("pluginName", pluginName);
-      console.log("Saved file structure to localStorage");
+      localStorage.setItem("pluginName", pluginNameToUse);
+      localStorage.setItem("pluginSlug", pluginSlugToUse);
+      console.log("Saved file structure and plugin details to localStorage");
     } catch (e) {
       console.error("Error saving to localStorage:", e);
     }
     
-    // After setting the file structure, generate the plugin ZIP
-    generatePluginZip().then(base64content => {
-      if (base64content) {
-        setPluginZipBase64(base64content);
-        console.log("Plugin ZIP generated successfully");
-      } else {
-        console.error("Failed to generate plugin ZIP");
-      }
-    });
-  }
+    // Use our direct function to generate the ZIP
+    setTimeout(() => {
+      console.log("Generating ZIP file using direct method");
+      directDownloadPluginWrapper()
+        .then(base64Zip => {
+          if (base64Zip) {
+            console.log("ZIP generated successfully in createFileStructure");
+          } else {
+            console.error("Failed to generate ZIP in createFileStructure");
+          }
+        })
+        .catch(err => console.error("Error generating ZIP in createFileStructure:", err));
+    }, 500); // Slight delay to ensure state is updated
+  };
 
   // Helper functions to generate class files
   const generateMainPluginFile = (pluginHeader: string, customFunctions: string, pluginName: string) => {
@@ -3336,7 +3350,8 @@ Your response must include:
 2. Begin with <?php on the first line
 3. Follow WordPress coding standards
 4. Include proper security checks and initialization
-5. Be production-ready and fully functional`;
+5. Be production-ready and fully functional
+6. Use exactly version "${details.version}" in the plugin header`;
     
     // Construct messages for the request
     const messages = [
@@ -3346,7 +3361,7 @@ Your response must include:
       },
       {
         role: "user",
-        content: `Generate a WordPress plugin based on this description: ${details.description || description}. The plugin name is: ${details.name}. ${details.version ? `The plugin version is: ${details.version}.` : ''} ${details.author ? `The plugin author is: ${details.author}.` : ''} ${details.uri ? `The plugin URI is: ${details.uri}.` : ''}`,
+        content: `Generate a WordPress plugin based on this description: ${details.description || description}. The plugin name is: ${details.name}. IMPORTANT: The plugin version MUST be exactly: ${details.version || '1.0.0'}. ${details.author ? `The plugin author is: ${details.author}.` : ''} ${details.uri ? `The plugin URI is: ${details.uri}.` : ''}`,
       },
     ];
     
@@ -3362,7 +3377,40 @@ Your response must include:
       if (selectedModel === "openai") {
         // OpenAI implementation
         console.log("Using OpenAI model for generation");
-        // Implementation would go here
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+          
+          console.log("Calling OpenAI API with messages:", messages);
+          
+          const completion = await openai.chat.completions.create({
+            model: "gpt-4",
+            messages: messages.map(msg => ({
+              role: msg.role as any,
+              content: msg.content
+            })),
+            stream: true,
+          });
+          
+          tempCode = "";
+          setIsStreaming(true);
+          
+          for await (const chunk of completion) {
+            const content = chunk.choices[0]?.delta?.content || "";
+            if (content) {
+              tempCode += content;
+              setGeneratedCode(tempCode);
+            }
+          }
+          
+          generatedCode = tempCode;
+          setIsStreaming(false);
+          
+          clearTimeout(timeoutId);
+        } catch (error: any) {
+          console.error("Error with OpenAI API:", error);
+          throw error; // Re-throw to be caught by the outer try/catch
+        }
       } else if (selectedModel === "anthropic") {
         setIsStreaming(true);
         
@@ -3442,6 +3490,8 @@ Your response must include:
           console.error("Error with Anthropic API:", error);
           throw error; // Re-throw to be caught by the outer try/catch
         }
+      } else {
+        throw new Error(`Unsupported model: ${selectedModel}`);
       }
       
       if (!generatedCode) {

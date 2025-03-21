@@ -14,7 +14,6 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
   const availableModels = [
     { id: "openai", name: "OpenAI GPT-4", requiresKey: config.OPENAI_API_KEY },
     { id: "anthropic", name: "Claude Sonnet 3.7", requiresKey: config.ANTHROPIC_API_KEY },
-    { id: "deepseek", name: "DeepSeek V2.5", requiresKey: config.DEEPSEEK_API_KEY },
   ]
 
   const enabledModels = availableModels.filter(model => model.requiresKey)
